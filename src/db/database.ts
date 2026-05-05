@@ -160,5 +160,22 @@ export function migrateDatabase(database: SqliteDatabase): void {
     );
 
     CREATE INDEX IF NOT EXISTS image_multimodal_tasks_status_idx ON image_multimodal_tasks(status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      created_by_open_id TEXT,
+      schedule TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('active','deleted')),
+      last_run_at TEXT,
+      next_run_at TEXT NOT NULL,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS cron_jobs_chat_status_idx ON cron_jobs(chat_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status, next_run_at);
   `);
 }
