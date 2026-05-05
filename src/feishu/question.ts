@@ -1,11 +1,13 @@
 import type { AppConfig, AppSecrets } from "../config/schema.js";
+import { CronJobRepository } from "../cron/jobs.js";
+import type { CronJobTool } from "../cron/tools.js";
+import { createCronJobTools } from "../cron/tools.js";
 import type { SqliteDatabase } from "../db/database.js";
 import { MessageRepository } from "../messages/repository.js";
-import { formatCitations } from "../rag/citations.js";
-import { askWithAgenticRag } from "../rag/agentic-qa-service.js";
 import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
-import type { ChatModel } from "../rag/types.js";
+import type { RagSearchTool } from "../rag/search-tools.js";
+import type { ChatMessage, ChatModel, ChatTool } from "../rag/types.js";
 import type { MessageSender } from "./sender.js";
 import type { FeishuReceiveMessageEvent } from "./normalize.js";
 
@@ -50,6 +52,98 @@ function stripMentions(text: string, mentions: NonNullable<NonNullable<FeishuRec
   }
 
   return result.replace(/@/g, " ").replace(/\s+/g, " ").trim();
+}
+
+type FeishuExecutableTool = (RagSearchTool | CronJobTool) & ChatTool;
+
+const FEISHU_TOOL_SYSTEM_PROMPT =
+  "你是飞书群聊助手。你可以先搜索本地知识来回答问题；当用户明确要求创建、查看或删除群消息定时任务时，也可以调用定时任务工具。定时任务工具只管理当前群聊，不能跨群操作。若用户用自然语言描述时间，你需要先将其转换为五字段 cron 表达式（分 时 日 月 周），再调用工具。对于一般问答，先按需调用搜索工具，再基于工具返回的证据直接给出最终答案；若引用了检索结果，要在答案里直接写出引用内容。不要声称完成了未实际调用的操作。";
+
+const DEFAULT_MAX_MODEL_TURNS = 4;
+const DEFAULT_MAX_TOOL_CALLS = 8;
+const FEISHU_TOOL_LOOP_FALLBACK = "定时任务操作已提交，但模型没有生成最终回复。";
+
+function toToolResultContent(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function toToolErrorContent(message: string): string {
+  return JSON.stringify({ ok: false, error: message });
+}
+
+async function executeFeishuTool(tool: FeishuExecutableTool, input: unknown): Promise<string> {
+  const result = await tool.execute(input);
+  return toToolResultContent(result);
+}
+
+async function runFeishuToolLoop(input: {
+  question: string;
+  model: ChatModel;
+  tools: FeishuExecutableTool[];
+  maxModelTurns?: number;
+  maxToolCalls?: number;
+}): Promise<string> {
+  if (!input.model.completeWithTools) {
+    throw new Error("当前 LLM 客户端不支持工具调用。");
+  }
+
+  const maxModelTurns = input.maxModelTurns ?? DEFAULT_MAX_MODEL_TURNS;
+  const maxToolCalls = input.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
+  const messages: ChatMessage[] = [
+    { role: "system", content: FEISHU_TOOL_SYSTEM_PROMPT },
+    { role: "user", content: input.question },
+  ];
+  const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
+  let toolCallsUsed = 0;
+
+  for (let turn = 0; turn < maxModelTurns; turn += 1) {
+    const assistantResult = await input.model.completeWithTools(messages, input.tools);
+    messages.push({
+      role: "assistant",
+      content: assistantResult.content,
+      toolCalls: assistantResult.toolCalls,
+    });
+
+    if (assistantResult.toolCalls.length === 0) {
+      return assistantResult.content || FEISHU_TOOL_LOOP_FALLBACK;
+    }
+
+    for (const toolCall of assistantResult.toolCalls) {
+      if (toolCallsUsed >= maxToolCalls) {
+        break;
+      }
+
+      toolCallsUsed += 1;
+      const tool = toolsByName.get(toolCall.name);
+
+      if (!tool) {
+        messages.push({
+          role: "tool",
+          toolCallId: toolCall.id,
+          content: toToolErrorContent(`未知工具：${toolCall.name}`),
+        });
+        continue;
+      }
+
+      try {
+        const result = await executeFeishuTool(tool, toolCall.input);
+        messages.push({
+          role: "tool",
+          toolCallId: toolCall.id,
+          content: result,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        messages.push({
+          role: "tool",
+          toolCallId: toolCall.id,
+          content: toToolErrorContent(message),
+        });
+      }
+    }
+  }
+
+  return FEISHU_TOOL_LOOP_FALLBACK;
 }
 
 type FeishuMessage = NonNullable<NonNullable<FeishuReceiveMessageEvent["event"]>["message"]>;
@@ -171,24 +265,28 @@ export class FeishuQuestionHandler {
 
     try {
       try {
-        const result = await askWithAgenticRag({
+        const cronTools = createCronJobTools({
+          repository: new CronJobRepository(this.options.database),
+          chatId: decision.chatId,
+          createdByOpenId: payload.event?.sender?.sender_id?.open_id,
+        });
+        const allTools: FeishuExecutableTool[] = [...tools, ...cronTools];
+        const answer = await runFeishuToolLoop({
           question: decision.question,
-          tools,
+          tools: allTools,
           model: this.options.model,
         });
         qaLogs.create({
           chatId: decision.chatId,
           questionMessageId,
           question: decision.question,
-          answer: result.answer,
-          citations: result.citations,
-          retrievalDebug: { evidenceCount: result.citations.length },
+          answer,
+          citations: [],
+          retrievalDebug: {},
           status: "answered",
           createdAt: new Date().toISOString(),
         });
-        const citations = formatCitations(result.citations);
-        const text = citations ? `${result.answer}\n\n引用：\n${citations}` : result.answer;
-        await this.sendResponse(decision.chatId, questionMessageId, text);
+        await this.sendResponse(decision.chatId, questionMessageId, answer);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         qaLogs.create({

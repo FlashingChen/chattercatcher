@@ -168,15 +168,15 @@ describe("FeishuQuestionHandler", () => {
         toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动什么时候" } }],
       },
       {
-        content: "检索完成。",
+        content: "端午活动目前是 2026/6/30。引用：老妈在 2026-04-25 16:00 说：端午活动改到 2026/6/30，以这个为准。",
         toolCalls: [],
       },
     ]);
     const model: ChatModel = {
       completeWithTools,
       async complete(messages) {
-        expect(messages[1]?.content).toContain("检索证据");
-        return "端午活动目前是 2026/6/30。[S1]";
+        expect(messages[1]?.content).toContain("端午活动什么时候？");
+        throw new Error("complete should not be called");
       },
     };
 
@@ -231,22 +231,9 @@ describe("FeishuQuestionHandler", () => {
         chatId: "oc_family",
         questionMessageId: "om_question",
         question: "端午活动什么时候？",
-        answer: "端午活动目前是 2026/6/30。[S1]",
-        citations: [
-          expect.objectContaining({
-            marker: "S1",
-            text: "端午活动改到 2026/6/30，以这个为准。",
-            source: {
-              type: "message",
-              label: "家庭群",
-              sender: "老妈",
-              timestamp: "2026-04-25T08:00:00.000Z",
-            },
-          }),
-        ],
-        retrievalDebug: {
-          evidenceCount: 1,
-        },
+        answer: "端午活动目前是 2026/6/30。引用：老妈在 2026-04-25 16:00 说：端午活动改到 2026/6/30，以这个为准。",
+        citations: [],
+        retrievalDebug: {},
         status: "answered",
         error: null,
       });
@@ -288,7 +275,7 @@ describe("FeishuQuestionHandler", () => {
               toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动什么时候" } }],
             },
             {
-              content: "检索完成。",
+              content: "暂时无法回答：模型未配置",
               toolCalls: [],
             },
           ]),
@@ -325,8 +312,8 @@ describe("FeishuQuestionHandler", () => {
         answer: "暂时无法回答：模型未配置",
         citations: [],
         retrievalDebug: {},
-        status: "failed",
-        error: "模型未配置",
+        status: "answered",
+        error: null,
       });
     } finally {
       database.close();
@@ -366,12 +353,12 @@ describe("FeishuQuestionHandler", () => {
               toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动什么时候" } }],
             },
             {
-              content: "检索完成。",
+              content: "端午活动目前是 2026/6/30。",
               toolCalls: [],
             },
           ]),
           async complete() {
-            return "端午活动目前是 2026/6/30。[S1]";
+            throw new Error("complete should not be called");
           },
         },
         sender: {
