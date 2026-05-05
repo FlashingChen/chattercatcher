@@ -46,6 +46,9 @@ describe("cron schedule utility", () => {
     expect(localParts(getNextCronRun("0 9 * * *", new Date(2026, 4, 5, 9, 0, 0))!)).toEqual([
       2026, 5, 6, 9, 0,
     ]);
+    expect(localParts(getNextCronRun("0 0 1 1 *", new Date(2027, 0, 1, 0, 1, 0))!)).toEqual([
+      2028, 1, 1, 0, 0,
+    ]);
   });
 
   it("returns null for invalid schedules", () => {

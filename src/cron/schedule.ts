@@ -31,7 +31,7 @@ export function getNextCronRun(schedule: string, after: Date): Date | null {
   candidate.setSeconds(0, 0);
   candidate.setMinutes(candidate.getMinutes() + 1);
 
-  const maxMinutes = 366 * 24 * 60;
+  const maxMinutes = 5 * 366 * 24 * 60;
   for (let i = 0; i < maxMinutes; i += 1) {
     if (matchesParsedSchedule(parsed, candidate)) {
       return new Date(candidate);
