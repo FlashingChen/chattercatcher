@@ -20,7 +20,7 @@ export async function processEpisodesNow(input: {
     now: input.now ?? new Date(),
     quietMs: input.config.episodes.quietMinutes * 60 * 1000,
     windowMs: input.config.episodes.windowMinutes * 60 * 1000,
-    summarize: (window) => summarizeEpisodeWindow(window, input.model),
+    summarize: (window, now) => summarizeEpisodeWindow(window, input.model, now),
   });
 
   return { created: created.length };

@@ -100,7 +100,7 @@ export class EpisodeRepository {
     now: Date;
     quietMs: number;
     windowMs: number;
-    summarize: (window: EpisodeWindow) => Promise<string>;
+    summarize: (window: EpisodeWindow, now: Date) => Promise<string>;
   }): Promise<EpisodeSummaryRecord[]> {
     const rows = this.database
       .prepare(
@@ -158,7 +158,7 @@ export class EpisodeRepository {
           endedAt: last.sentAt,
           messages: windowMessages,
         };
-        const summary = await input.summarize(window);
+        const summary = await input.summarize(window, input.now);
         created.push(this.insertEpisode(window, summary));
       }
     }

@@ -5,6 +5,12 @@ export interface BuildEvidencePromptOptions {
   maxCharsPerBlock?: number;
 }
 
+export interface BuildEvidencePromptInput {
+  question: string;
+  evidence: EvidenceBlock[];
+  now: Date;
+}
+
 export interface EvidencePrompt {
   messages: ChatMessage[];
   citations: Citation[];
@@ -40,10 +46,11 @@ export function rankEvidenceForPrompt(evidence: EvidenceBlock[]): EvidenceBlock[
 }
 
 export function buildEvidencePrompt(
-  question: string,
-  evidence: EvidenceBlock[],
+  input: BuildEvidencePromptInput,
   options: BuildEvidencePromptOptions = {},
 ): EvidencePrompt {
+  const { question, evidence, now } = input;
+
   if (evidence.length === 0) {
     throw new Error("RAG evidence is required before answer generation.");
   }
@@ -81,11 +88,11 @@ export function buildEvidencePrompt(
       {
         role: "system",
         content:
-          "你是 ChatterCatcher 的问答模块。只能根据提供的检索证据回答，必须简短直接。事实性结论必须引用 [S1] 这样的来源标记。证据不足时说不知道，不要猜。若证据互相矛盾，优先采用时间更新且表述明确的证据；如果较新的证据只是讨论、猜测或不确定表达，不要把它当作确定更新。",
+          "你是 ChatterCatcher 的问答模块。只能根据提供的检索证据回答，必须简短直接。事实性结论必须引用 [S1] 这样的来源标记。证据不足时说不知道，不要猜。若证据互相矛盾，优先采用时间更新且表述明确的证据；如果较新的证据只是讨论、猜测或不确定表达，不要把它当作确定更新。检索证据中的时间戳是消息被发送时的真实时间。回答时若涉及相对时间表述（如消息中说“明天”“今晚”），必须基于证据中每条消息的时间戳推导为具体日期（如“2026-05-06”），不要照搬原文的相对表述。证据中每条消息标注了发送时间。回答时优先输出绝对日期，不确定时引用原文时间戳，不要使用“今天”“明天”等依赖当前上下文的模糊表述。",
       },
       {
         role: "user",
-        content: `问题：${question}\n\n证据处理规则：\n1. 先判断证据是否足以回答问题。\n2. 同一事项出现多个版本时，默认较新的明确消息优先。\n3. 回答只引用实际支撑结论的证据。\n\n检索证据：\n${evidenceText}`,
+        content: `当前时间：${now.toISOString()}\n问题：${question}\n\n证据处理规则：\n1. 先判断证据是否足以回答问题。\n2. 同一事项出现多个版本时，默认较新的明确消息优先。\n3. 回答只引用实际支撑结论的证据。\n\n检索证据：\n${evidenceText}`,
       },
     ],
   };
@@ -95,8 +102,9 @@ export async function generateGroundedAnswer(input: {
   question: string;
   evidence: EvidenceBlock[];
   model: ChatModel;
+  now: Date;
 }): Promise<GroundedAnswer> {
-  const prompt = buildEvidencePrompt(input.question, input.evidence);
+  const prompt = buildEvidencePrompt({ question: input.question, evidence: input.evidence, now: input.now });
   const answer = await input.model.complete(prompt.messages);
 
   return {
