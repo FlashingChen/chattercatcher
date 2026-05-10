@@ -143,6 +143,9 @@ describe("FeishuQuestionHandler", () => {
   });
 
   it("通过 RAG 生成答案并发送到原群", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-10T08:00:00.000Z"));
+
     const config = createDefaultConfig();
     config.storage.dataDir = testDir;
     config.feishu.botOpenId = "ou_bot";
@@ -163,9 +166,16 @@ describe("FeishuQuestionHandler", () => {
       },
     };
     const completeWithTools = createCompleteWithToolsMock([
-      {
-        content: "我先查一下相关消息。",
-        toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动什么时候" } }],
+      async (messages) => {
+        const joinedPrompt = messages.map((message) => message.content ?? "").join("\n");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedPrompt).toContain("相对时间表述");
+        expect(joinedPrompt).toContain("证据中每条消息的时间戳推导为具体日期");
+
+        return {
+          content: "我先查一下相关消息。",
+          toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动什么时候" } }],
+        };
       },
       {
         content: "端午活动目前是 2026/6/30。引用：老妈在 2026-04-25 16:00 说：端午活动改到 2026/6/30，以这个为准。",
@@ -239,6 +249,7 @@ describe("FeishuQuestionHandler", () => {
       });
     } finally {
       database.close();
+      vi.useRealTimers();
     }
   });
 
