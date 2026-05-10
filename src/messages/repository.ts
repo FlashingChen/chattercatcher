@@ -215,6 +215,10 @@ export class MessageRepository {
     }
 
     const derivedPlatformMessageId = `${source.platformMessageId}:image-summary:${input.imageKey}`;
+    const imageFileName = input.imageFileName?.trim();
+    const summaryText = imageFileName
+      ? `[图片转述] 文件名：${imageFileName}\n${input.summary.trim()}`
+      : `[图片转述] ${input.summary.trim()}`;
     return this.ingest({
       platform: source.platform,
       platformChatId: source.platformChatId,
@@ -223,12 +227,13 @@ export class MessageRepository {
       senderId: source.senderId,
       senderName: source.senderName,
       messageType: "image_summary",
-      text: `[图片转述] ${input.summary.trim()}`,
+      text: summaryText,
       sentAt: source.sentAt,
       rawPayload: {
         derivedFromMessageId: input.sourceMessageId,
         sourceAttachmentKind: "image",
         sourceResourceKey: input.imageKey,
+        ...(imageFileName ? { imageFileName } : {}),
         multimodalModel: input.multimodalModel,
         isMeaningful: true,
         ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),

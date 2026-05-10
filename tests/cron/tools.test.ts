@@ -47,12 +47,12 @@ describe("createCronJobTools", () => {
       const tools = createCronJobTools({ repository, chatId: "chat-a", createdByOpenId: "user-a" });
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
-      const created = JSON.parse(await byName.get("create_cron_job")!.execute({ schedule: "0 9 * * *", prompt: "总结昨天群聊" }));
-      expect(created).toMatchObject({ ok: true, job: { chatId: "chat-a", createdByOpenId: "user-a", schedule: "0 9 * * *", prompt: "总结昨天群聊" } });
+      const created = JSON.parse(await byName.get("create_cron_job")!.execute({ schedule: "0 9 * * *", prompt: "总结昨天群聊", imageFileName: "order-code.jpg" }));
+      expect(created).toMatchObject({ ok: true, job: { chatId: "chat-a", createdByOpenId: "user-a", schedule: "0 9 * * *", prompt: "总结昨天群聊", imageFileName: "order-code.jpg" } });
 
       const list = JSON.parse(await byName.get("list_cron_jobs")!.execute({}));
       expect(list.jobs).toHaveLength(1);
-      expect(list.jobs[0]).toMatchObject({ id: created.job.id, chatId: "chat-a" });
+      expect(list.jobs[0]).toMatchObject({ id: created.job.id, chatId: "chat-a", imageFileName: "order-code.jpg" });
 
       const deleted = JSON.parse(await byName.get("delete_cron_job")!.execute({ id: created.job.id }));
       expect(deleted).toMatchObject({ ok: true, id: created.job.id });

@@ -1,4 +1,5 @@
 import * as lark from "@larksuiteoapi/node-sdk";
+import path from "node:path";
 import type { AppConfig, AppSecrets } from "../config/schema.js";
 import { CronJobRepository } from "../cron/jobs.js";
 import { generateCronJobMessage } from "../cron/generator.js";
@@ -13,6 +14,7 @@ import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { processMessagesNow } from "../rag/manual-index.js";
 import type { ChatModel } from "../rag/types.js";
 import type { SqliteDatabase } from "../db/database.js";
+import { resolveHomePath } from "../config/paths.js";
 import type { FeishuReceiveMessageEvent } from "./normalize.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { MultimodalModel } from "../multimodal/types.js";
@@ -44,7 +46,7 @@ export interface FeishuGatewayOptions {
   imageMultimodalProcessor?: { database: SqliteDatabase; model: MultimodalModel };
   indexingProcessor?: { database: SqliteDatabase };
   indexingScheduler?: IndexingScheduler;
-  cronJobProcessor?: { database: SqliteDatabase; model: ChatModel; sender: Pick<MessageSender, "sendTextToChat"> };
+  cronJobProcessor?: { database: SqliteDatabase; model: ChatModel; sender: Pick<MessageSender, "sendTextToChat" | "sendImageToChat"> };
   cronJobScheduler?: CronJobScheduler;
   wsClientFactory?: (params: {
     appId: string;
@@ -183,6 +185,14 @@ export function createFeishuEventDispatcher(options: {
   });
 }
 
+function resolveFeishuImagePath(config: AppConfig, imageFileName: string): string {
+  const fileName = path.basename(imageFileName.trim());
+  if (!fileName || fileName !== imageFileName.trim()) {
+    throw new Error("图片文件名无效。");
+  }
+  return path.join(resolveHomePath(config.storage.dataDir), "files", "feishu", fileName);
+}
+
 export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewayRuntime {
   assertFeishuConfig(options.config, options.secrets);
 
@@ -240,6 +250,12 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
       ? createCronJobScheduler({
           repository: new CronJobRepository(options.cronJobProcessor.database),
           sendTextToChat: (chatId, text) => options.cronJobProcessor!.sender.sendTextToChat(chatId, text),
+          sendImageToChat: options.cronJobProcessor.sender.sendImageToChat
+            ? (chatId, imageFileName) => options.cronJobProcessor!.sender.sendImageToChat!(
+                chatId,
+                resolveFeishuImagePath(options.config, imageFileName),
+              )
+            : undefined,
           generateMessage: async (job, now) => {
             const { tools, close } = await createAgenticRagSearchTools({
               config: options.config,

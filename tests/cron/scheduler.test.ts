@@ -12,6 +12,7 @@ function job(input: Partial<CronJobRecord> = {}): CronJobRecord {
     nextRunAt: input.nextRunAt ?? "2026-05-05T09:00:00.000Z",
     createdAt: input.createdAt ?? "2026-05-05T08:00:00.000Z",
     updatedAt: input.updatedAt ?? "2026-05-05T08:00:00.000Z",
+    ...(input.imageFileName ? { imageFileName: input.imageFileName } : {}),
   };
 }
 
@@ -32,6 +33,31 @@ describe("createCronJobScheduler", () => {
 
     expect(generate).toHaveBeenCalledWith(due, now());
     expect(send).toHaveBeenCalledWith("chat-a", "定时总结");
+    expect(repository.markSuccess).toHaveBeenCalledWith("job-1", now());
+  });
+
+  it("sends configured image after due job text", async () => {
+    const due = job({ imageFileName: "order-code.jpg" });
+    const repository = {
+      listDue: vi.fn(() => [due]),
+      markSuccess: vi.fn(),
+      markFailure: vi.fn(),
+    } as unknown as CronJobRepository;
+    const sendText = vi.fn(async () => undefined);
+    const sendImage = vi.fn(async () => undefined);
+    const now = () => new Date("2026-05-05T09:00:00.000Z");
+
+    const scheduler = createCronJobScheduler({
+      repository,
+      generateMessage: async () => "记得取餐",
+      sendTextToChat: sendText,
+      sendImageToChat: sendImage,
+      now,
+    });
+    await scheduler.runDueNow();
+
+    expect(sendText).toHaveBeenCalledWith("chat-a", "记得取餐");
+    expect(sendImage).toHaveBeenCalledWith("chat-a", "order-code.jpg");
     expect(repository.markSuccess).toHaveBeenCalledWith("job-1", now());
   });
 

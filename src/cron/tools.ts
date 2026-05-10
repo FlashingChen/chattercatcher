@@ -22,6 +22,21 @@ function readString(input: unknown, key: string): string {
   return value.trim();
 }
 
+function readOptionalString(input: unknown, key: string): string | undefined {
+  const value =
+    typeof input === "object" && input !== null && key in input
+      ? (input as Record<string, unknown>)[key]
+      : undefined;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${key} 必须是字符串。`);
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 export function createCronJobTools(input: CreateCronJobToolsInput): CronJobTool[] {
   return [
     {
@@ -39,6 +54,10 @@ export function createCronJobTools(input: CreateCronJobToolsInput): CronJobTool[
             type: "string",
             description: "Prompt used later to generate the scheduled message.",
           },
+          imageFileName: {
+            type: "string",
+            description: "Optional image filename already stored from the current chat, for example om_xxx-image.jpg.",
+          },
         },
         required: ["schedule", "prompt"],
         additionalProperties: false,
@@ -49,6 +68,7 @@ export function createCronJobTools(input: CreateCronJobToolsInput): CronJobTool[
           createdByOpenId: input.createdByOpenId,
           schedule: readString(rawInput, "schedule"),
           prompt: readString(rawInput, "prompt"),
+          imageFileName: readOptionalString(rawInput, "imageFileName"),
         });
         return JSON.stringify({ ok: true, job });
       },

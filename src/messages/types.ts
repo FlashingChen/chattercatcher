@@ -50,6 +50,7 @@ export interface IngestMessageInput {
 export interface CreateImageSummaryMessageInput {
   sourceMessageId: string;
   imageKey: string;
+  imageFileName?: string;
   summary: string;
   reason?: string;
   multimodalModel: string;

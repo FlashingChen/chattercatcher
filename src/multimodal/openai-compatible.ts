@@ -27,6 +27,7 @@ function buildPrompt(context?: string): string {
     "请理解这张图片，判断它是否包含值得进入知识库和会话记忆的有意义信息。",
     "请只输出 JSON，格式为 {\"summary\": string, \"isMeaningful\": boolean, \"reason\": string}。",
     "summary 使用简洁中文转述图片中的关键信息；无意义图片也要给出简短 summary。",
+    "如果上下文提供了图片文件名，summary 必须原样包含该文件名，便于之后按文件名检索和发送图片。",
     contextText ? `上下文：${contextText}` : undefined,
   ]
     .filter(Boolean)

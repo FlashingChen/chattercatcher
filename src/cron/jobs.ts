@@ -10,6 +10,7 @@ export interface CronJobRecord {
   createdByOpenId?: string;
   schedule: string;
   prompt: string;
+  imageFileName?: string;
   status: CronJobStatus;
   lastRunAt?: string;
   nextRunAt: string;
@@ -28,6 +29,7 @@ interface CronJobRow {
   createdByOpenId: string | null;
   schedule: string;
   prompt: string;
+  imageFileName: string | null;
   status: CronJobStatus;
   lastRunAt: string | null;
   nextRunAt: string;
@@ -51,9 +53,11 @@ export class CronJobRepository {
     createdByOpenId?: string;
     schedule: string;
     prompt: string;
+    imageFileName?: string;
   }): CronJobRecord {
     const schedule = input.schedule.trim();
     const prompt = input.prompt.trim();
+    const imageFileName = input.imageFileName?.trim();
     if (!isValidCronSchedule(schedule)) {
       throw new Error("cron 表达式无效。");
     }
@@ -73,6 +77,7 @@ export class CronJobRepository {
       createdByOpenId: input.createdByOpenId,
       schedule,
       prompt,
+      ...(imageFileName ? { imageFileName } : {}),
       status: "active",
       nextRunAt: nextRunAt.toISOString(),
       createdAt: now.toISOString(),
@@ -83,16 +88,19 @@ export class CronJobRepository {
       .prepare(
         `
         INSERT INTO cron_jobs (
-          id, chat_id, created_by_open_id, schedule, prompt, status,
+          id, chat_id, created_by_open_id, schedule, prompt, image_file_name, status,
           last_run_at, next_run_at, last_error, created_at, updated_at
         )
         VALUES (
-          @id, @chatId, @createdByOpenId, @schedule, @prompt, @status,
+          @id, @chatId, @createdByOpenId, @schedule, @prompt, @imageFileName, @status,
           NULL, @nextRunAt, NULL, @createdAt, @updatedAt
         )
       `,
       )
-      .run(record);
+      .run({
+        ...record,
+        imageFileName: record.imageFileName ?? null,
+      });
 
     return record;
   }
@@ -123,6 +131,7 @@ export class CronJobRepository {
           created_by_open_id AS createdByOpenId,
           schedule,
           prompt,
+          image_file_name AS imageFileName,
           status,
           last_run_at AS lastRunAt,
           next_run_at AS nextRunAt,
@@ -143,6 +152,7 @@ export class CronJobRepository {
       createdByOpenId: row.createdByOpenId ?? undefined,
       schedule: row.schedule,
       prompt: row.prompt,
+      imageFileName: row.imageFileName ?? undefined,
       status: row.status,
       lastRunAt: row.lastRunAt ?? undefined,
       nextRunAt: row.nextRunAt,
@@ -235,6 +245,7 @@ export class CronJobRepository {
           created_by_open_id AS createdByOpenId,
           schedule,
           prompt,
+          image_file_name AS imageFileName,
           status,
           last_run_at AS lastRunAt,
           next_run_at AS nextRunAt,
@@ -255,6 +266,7 @@ export class CronJobRepository {
       createdByOpenId: row.createdByOpenId ?? undefined,
       schedule: row.schedule,
       prompt: row.prompt,
+      imageFileName: row.imageFileName ?? undefined,
       status: row.status,
       lastRunAt: row.lastRunAt ?? undefined,
       nextRunAt: row.nextRunAt,

@@ -52,14 +52,14 @@ describe("ImageMultimodalWorker", () => {
         sourceMessageId,
         platformMessageId: "image-1",
         imageKey: "img-1",
-        storedPath: "/tmp/image.jpg",
+        storedPath: path.join(testDir, "order-code.jpg"),
         mimeType: "image/jpeg",
       });
       const indexedMessageIds: string[] = [];
       const model: MultimodalModel = {
         async describeImage(input) {
-          expect(input).toMatchObject({ imagePath: "/tmp/image.jpg", mimeType: "image/jpeg" });
-          return { summary: "白板写着 5 月 10 日上线图片多模态功能。", isMeaningful: true, reason: "包含计划" };
+          expect(input).toMatchObject({ imagePath: path.join(testDir, "order-code.jpg"), mimeType: "image/jpeg", context: "图片文件名：order-code.jpg" });
+          return { summary: "文件名：order-code.jpg。白板写着 5 月 10 日上线图片多模态功能。", isMeaningful: true, reason: "包含计划" };
         },
       };
 
@@ -77,9 +77,9 @@ describe("ImageMultimodalWorker", () => {
         summarizeEpisode: async (window) => {
           expect(window.messages.map((message) => message.text)).toEqual([
             "[图片] img-1",
-            "[图片转述] 白板写着 5 月 10 日上线图片多模态功能。",
+            "[图片转述] 文件名：order-code.jpg\n文件名：order-code.jpg。白板写着 5 月 10 日上线图片多模态功能。",
           ]);
-          return "图片转述说明白板写着 5 月 10 日上线图片多模态功能。";
+          return "图片转述说明 order-code.jpg 里白板写着 5 月 10 日上线图片多模态功能。";
         },
       }).processPending();
 
@@ -90,7 +90,7 @@ describe("ImageMultimodalWorker", () => {
       expect(derived).toMatchObject({ messageType: "image_summary" });
       expect(indexedMessageIds).toEqual([derived?.messageId]);
       expect(updatedTask).toMatchObject({ status: "succeeded", derivedMessageId: derived?.messageId });
-      expect(episodes.listRecentEpisodes(1)[0]?.summary).toContain("图片转述");
+      expect(episodes.listRecentEpisodes(1)[0]?.summary).toContain("order-code.jpg");
     } finally {
       database.close();
     }

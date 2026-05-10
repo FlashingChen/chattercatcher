@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AppConfig } from "../config/schema.js";
 import type { EpisodeRepository, EpisodeWindow } from "../episodes/repository.js";
 import type { MessageRepository } from "../messages/repository.js";
@@ -50,9 +51,11 @@ export class ImageMultimodalWorker {
     }
 
     try {
+      const imageFileName = path.basename(running.storedPath);
       const described = await this.options.model.describeImage({
         imagePath: running.storedPath,
         mimeType: running.mimeType,
+        context: `图片文件名：${imageFileName}`,
       });
 
       if (!described.isMeaningful) {
@@ -64,6 +67,7 @@ export class ImageMultimodalWorker {
       const derivedMessageId = this.options.messages.createImageSummaryMessage({
         sourceMessageId: running.sourceMessageId,
         imageKey: running.imageKey,
+        imageFileName,
         summary: described.summary,
         reason: described.reason,
         multimodalModel: this.options.multimodalModelName,

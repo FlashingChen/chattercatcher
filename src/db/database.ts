@@ -172,10 +172,16 @@ export function migrateDatabase(database: SqliteDatabase): void {
       next_run_at TEXT NOT NULL,
       last_error TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      image_file_name TEXT
     );
 
     CREATE INDEX IF NOT EXISTS cron_jobs_chat_status_idx ON cron_jobs(chat_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status, next_run_at);
   `);
+
+  const cronJobColumns = database.prepare("PRAGMA table_info(cron_jobs)").all() as Array<{ name: string }>;
+  if (!cronJobColumns.some((column) => column.name === "image_file_name")) {
+    database.prepare("ALTER TABLE cron_jobs ADD COLUMN image_file_name TEXT").run();
+  }
 }

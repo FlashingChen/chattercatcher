@@ -1,8 +1,10 @@
 import * as lark from "@larksuiteoapi/node-sdk";
+import fs from "node:fs/promises";
 import type { AppConfig, AppSecrets } from "../config/schema.js";
 
 export interface MessageSender {
   sendTextToChat(chatId: string, text: string): Promise<void>;
+  sendImageToChat?(chatId: string, imagePath: string): Promise<void>;
   replyTextToMessage?(messageId: string, text: string): Promise<void>;
   addReactionToMessage?(messageId: string, emojiType: string): Promise<void>;
 }
@@ -30,6 +32,14 @@ interface FeishuClientLike {
             content: string;
           };
         }) => Promise<unknown>;
+      };
+      image?: {
+        create(payload: {
+          data: {
+            image_type: "message";
+            image: Buffer;
+          };
+        }): Promise<unknown>;
       };
       messageReaction?: {
         create(payload: {
@@ -72,6 +82,21 @@ export function mapDomain(domain: AppConfig["feishu"]["domain"]): lark.Domain {
   return domain === "lark" ? lark.Domain.Lark : lark.Domain.Feishu;
 }
 
+function extractImageKey(response: unknown): string {
+  const data = response && typeof response === "object" ? (response as Record<string, unknown>) : {};
+  const direct = data.image_key;
+  if (typeof direct === "string" && direct.trim()) {
+    return direct.trim();
+  }
+
+  const nested = data.data && typeof data.data === "object" ? (data.data as Record<string, unknown>).image_key : undefined;
+  if (typeof nested === "string" && nested.trim()) {
+    return nested.trim();
+  }
+
+  throw new Error("飞书图片上传响应缺少 image_key。");
+}
+
 export class FeishuMessageSender implements MessageSender {
   constructor(private readonly client: FeishuClientLike) {}
 
@@ -110,6 +135,44 @@ export class FeishuMessageSender implements MessageSender {
     {
       throw new Error("当前飞书 SDK 不支持消息发送接口。");
     }
+  }
+
+  async sendImageToChat(chatId: string, imagePath: string): Promise<void> {
+    const imageCreate = this.client.im.v1?.image?.create;
+    if (!imageCreate) {
+      throw new Error("当前飞书 SDK 不支持图片上传接口。");
+    }
+
+    const image = await fs.readFile(imagePath);
+    const uploaded = await imageCreate({
+      data: {
+        image_type: "message",
+        image,
+      },
+    });
+    const imageKey = extractImageKey(uploaded);
+    const payload = {
+      data: {
+        receive_id: chatId,
+        msg_type: "image",
+        content: JSON.stringify({ image_key: imageKey }),
+      },
+      params: {
+        receive_id_type: "chat_id" as const,
+      },
+    };
+
+    if (this.client.im.v1?.message.create) {
+      await this.client.im.v1.message.create(payload);
+      return;
+    }
+
+    if (this.client.im.message?.create) {
+      await this.client.im.message.create(payload);
+      return;
+    }
+
+    throw new Error("当前飞书 SDK 不支持消息发送接口。");
   }
 
   async replyTextToMessage(messageId: string, text: string): Promise<void> {
