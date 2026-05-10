@@ -419,16 +419,16 @@ function buildHtml(): string {
             "    <span>" + escapeHtml(item.status) + "</span>",
             "    <span>" + escapeHtml(citationCount) + " 条引用</span>",
             "  </div>",
-            "  <div class=\"message-body\"><strong>问：</strong>" + escapeHtml(item.question) + "</div>",
-            "  <div class=\"message-body\"><strong>答：</strong>" + escapeHtml(item.answer) + "</div>",
+            "  <div class=\\\"message-body\\\"><strong>问：</strong>" + escapeHtml(item.question) + "</div>",
+            "  <div class=\\\"message-body\\\"><strong>答：</strong>" + escapeHtml(item.answer) + "</div>",
             "</article>",
-          ].join("\n");
+          ].join("\\n");
         });
         qaLogs.innerHTML = [
           '<div class="message-list">',
           rows.join(""),
           "</div>",
-        ].join("\n");
+        ].join("\\n");
       }
 
       async function fetchJson(path) {

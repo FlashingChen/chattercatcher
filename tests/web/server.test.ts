@@ -213,6 +213,9 @@ describe("web server", () => {
       expect(response.body).toContain("chattercatcher process episodes");
       expect(response.body).toContain("立即处理");
       expect(response.body).toContain("setInterval");
+      expect(() => new Function(response.body.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? "")).not.toThrow();
+      expect(response.body).not.toContain('"  <div class="message-body"');
+      expect(response.body).not.toContain('join("\n")');
       expect(response.body).not.toContain("id=\"refresh\"");
       expect(response.body).not.toContain(">刷新<");
     } finally {
