@@ -42,7 +42,7 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
 
   for (let turn = 0; turn < maxModelTurns; turn += 1) {
     const result = await input.model.completeWithTools(messages, input.tools);
-    messages.push({ role: "assistant", content: result.content, toolCalls: result.toolCalls });
+    messages.push({ role: "assistant", content: result.content, toolCalls: result.toolCalls, reasoningContent: result.reasoningContent });
 
     if (result.toolCalls.length === 0) {
       break;

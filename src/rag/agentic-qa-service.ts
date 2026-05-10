@@ -76,6 +76,7 @@ export async function askWithAgenticRag(input: AskWithAgenticRagInput): Promise<
       role: "assistant",
       content: assistantResult.content,
       toolCalls: assistantResult.toolCalls,
+      reasoningContent: assistantResult.reasoningContent,
     });
 
     if (assistantResult.toolCalls.length === 0) {

@@ -1,6 +1,6 @@
 {
   "name": "chattercatcher",
-  "version": "0.1.16",
+  "version": "0.1.20",
   "description": "本地优先的飞书/Lark 家庭群知识库机器人",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,9 @@
   "files": [
     "assets",
     "dist",
-    "docs",
+    "docs/DEVELOPMENT_PLAN.md",
+    "docs/PRD.md",
+    "docs/TECHNICAL_ARCHITECTURE.md",
     "README.md",
     "AGENTS.md"
   ],

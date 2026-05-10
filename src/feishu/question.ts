@@ -103,6 +103,7 @@ async function runFeishuToolLoop(input: {
       role: "assistant",
       content: assistantResult.content,
       toolCalls: assistantResult.toolCalls,
+      reasoningContent: assistantResult.reasoningContent,
     });
 
     if (assistantResult.toolCalls.length === 0) {

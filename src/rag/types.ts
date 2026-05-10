@@ -38,6 +38,7 @@ export interface ChatMessage {
   content: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  reasoningContent?: string;
 }
 
 export interface ChatTool {
@@ -49,6 +50,7 @@ export interface ChatTool {
 export interface ToolChatResult {
   content: string;
   toolCalls: ToolCall[];
+  reasoningContent?: string;
 }
 
 export interface ChatModel {
