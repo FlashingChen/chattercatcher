@@ -7,7 +7,7 @@ import { MessageRepository } from "../messages/repository.js";
 import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
-import type { ChatMessage, ChatModel, ChatTool } from "../rag/types.js";
+import type { ChatMessage, ChatModel, ChatTool, EvidenceBlock } from "../rag/types.js";
 import type { MessageSender } from "./sender.js";
 import type { FeishuReceiveMessageEvent } from "./normalize.js";
 
@@ -57,7 +57,7 @@ function stripMentions(text: string, mentions: NonNullable<NonNullable<FeishuRec
 type FeishuExecutableTool = (RagSearchTool | CronJobTool) & ChatTool;
 
 const FEISHU_TOOL_SYSTEM_PROMPT =
-  "你是飞书群聊助手。你可以先搜索本地知识来回答问题；当用户明确要求创建、查看或删除群消息定时任务时，也可以调用定时任务工具。定时任务工具只管理当前群聊，不能跨群操作。若用户用自然语言描述时间，你需要先将其转换为五字段 cron 表达式（分 时 日 月 周），再调用工具。当前时间会提供给你。检索证据中的时间戳是消息被发送时的真实时间。回答时若涉及相对时间表述（如消息中说“明天”“今晚”），必须基于证据中每条消息的时间戳推导为具体日期，不要照搬原文的相对表述。对于一般问答，先按需调用搜索工具，再基于工具返回的证据直接给出最终答案；若引用了检索结果，要在答案里直接写出引用内容。不要声称完成了未实际调用的操作。";
+  `你是飞书群聊助手。你可以先搜索本地知识来回答问题；当用户明确要求创建、查看或删除群消息定时任务时，也可以调用定时任务工具。定时任务工具只管理当前群聊，不能跨群操作。若用户用自然语言描述时间，你需要先将其转换为五字段 cron 表达式（分 时 日 月 周），再调用工具。当前时间会提供给你。检索证据中的时间戳是消息被发送时的真实时间。回答时若涉及相对时间表述（如消息中说”明天””今晚”），必须基于证据中每条消息的时间戳推导为具体日期，不要照搬原文的相对表述。对于一般问答，先按需调用搜索工具，再基于工具返回的证据直接给出最终答案；若引用了检索结果，要在答案里直接写出引用内容。不要声称完成了未实际调用的操作。重要：你的回答必须是面向群成员的自然语言，绝对不能输出 JSON、工具调用细节或原始的搜索结果格式。用户只应看到你整合后的最终答案。`;
 
 const DEFAULT_MAX_MODEL_TURNS = 4;
 const DEFAULT_MAX_TOOL_CALLS = 8;
@@ -65,7 +65,24 @@ const FEISHU_TOOL_LOOP_FALLBACK = "定时任务操作已提交，但模型没有
 const FEISHU_TOOL_LOOP_LIMIT_REACHED = "工具调用次数已达到上限，请缩小请求后重试。";
 
 function toToolResultContent(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function isEvidenceBlockArray(value: unknown): value is EvidenceBlock[] {
+  return Array.isArray(value) && value.length > 0 && typeof (value[0] as EvidenceBlock)?.text === "string";
+}
+
+function formatEvidenceBlocks(blocks: EvidenceBlock[]): string {
+  return blocks
+    .map((block, index) => {
+      const source = block.source;
+      const sender = source.sender ? `${source.sender} ` : "";
+      const timestamp = source.timestamp ? `(${source.timestamp.slice(0, 19).replace("T", " ")})` : "";
+      const header = `[证据${index + 1}] ${sender}${timestamp}:`;
+      return `${header}\n${block.text}`;
+    })
+    .join("\n\n");
 }
 
 function toToolErrorContent(message: string): string {
@@ -74,6 +91,9 @@ function toToolErrorContent(message: string): string {
 
 async function executeFeishuTool(tool: FeishuExecutableTool, input: unknown): Promise<string> {
   const result = await tool.execute(input);
+  if (isEvidenceBlockArray(result)) {
+    return formatEvidenceBlocks(result);
+  }
   return toToolResultContent(result);
 }
 
