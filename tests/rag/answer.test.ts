@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { buildEvidencePrompt, generateGroundedAnswer, rankEvidenceForPrompt } from "../../src/rag/answer.js";
 import type { ChatModel, EvidenceBlock } from "../../src/rag/types.js";
 
+const now = new Date("2026-05-10T08:00:00.000Z");
+
 const evidence: EvidenceBlock[] = [
   {
     id: "msg-1",
@@ -18,11 +20,13 @@ const evidence: EvidenceBlock[] = [
 
 describe("RAG answer boundary", () => {
   it("没有检索证据时拒绝生成答案", () => {
-    expect(() => buildEvidencePrompt("端午活动什么时候？", [])).toThrow("RAG evidence is required");
+    expect(() => buildEvidencePrompt({ question: "端午活动什么时候？", evidence: [], now })).toThrow(
+      "RAG evidence is required",
+    );
   });
 
   it("只把检索证据放入答案 prompt，并生成引用映射", () => {
-    const prompt = buildEvidencePrompt("端午活动什么时候？", evidence);
+    const prompt = buildEvidencePrompt({ question: "端午活动什么时候？", evidence, now });
 
     expect(prompt.citations).toEqual([
       {
@@ -33,6 +37,9 @@ describe("RAG answer boundary", () => {
       },
     ]);
     expect(prompt.messages[0]?.content).toContain("证据互相矛盾");
+    expect(prompt.messages[0]?.content).toContain("相对时间表述");
+    expect(prompt.messages[0]?.content).toContain("证据中每条消息标注了发送时间");
+    expect(prompt.messages[1]?.content).toContain("当前时间：2026-05-10T08:00:00.000Z");
     expect(prompt.messages[1]?.content).toContain("检索证据");
     expect(prompt.messages[1]?.content).toContain("[S1]");
     expect(prompt.messages[1]?.content).toContain("端午活动改到 2026/6/30");
@@ -80,6 +87,9 @@ describe("RAG answer boundary", () => {
     const model: ChatModel = {
       async complete(messages) {
         expect(messages.map((message) => message.content).join("\n")).toContain("[S1]");
+        expect(messages.map((message) => message.content).join("\n")).toContain(
+          "当前时间：2026-05-10T08:00:00.000Z",
+        );
         return "端午活动目前是 2026/6/30。[S1]";
       },
     };
@@ -88,6 +98,7 @@ describe("RAG answer boundary", () => {
       question: "端午活动什么时候？",
       evidence,
       model,
+      now,
     });
 
     expect(result.answer).toBe("端午活动目前是 2026/6/30。[S1]");
