@@ -25,7 +25,7 @@ interface OpenAICompatibleMessage {
 
 interface ChatCompletionResponse {
   choices?: Array<{
-    message?: OpenAICompatibleMessage;
+    message?: OpenAICompatibleMessage & { reasoning_content?: string };
   }>;
 }
 
@@ -56,6 +56,7 @@ function toOpenAIMessage(message: ChatMessage): OpenAICompatibleMessage {
           })),
         }
       : {}),
+    ...(message.reasoningContent ? { reasoning_content: message.reasoningContent } : {}),
   };
 }
 
@@ -114,7 +115,8 @@ export class OpenAICompatibleChatModel implements ChatModel {
     }
 
     const data = (await response.json()) as ChatCompletionResponse;
-    const content = data.choices?.[0]?.message?.content?.trim();
+    const message = data.choices?.[0]?.message;
+    const content = message?.content?.trim();
     if (!content) {
       throw new Error("LLM 返回为空。");
     }
@@ -153,6 +155,7 @@ export class OpenAICompatibleChatModel implements ChatModel {
     return {
       content: message?.content ?? "",
       toolCalls: parseToolCalls(message),
+      reasoningContent: message?.reasoning_content ?? undefined,
     };
   }
 }

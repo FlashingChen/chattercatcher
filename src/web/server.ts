@@ -431,24 +431,28 @@ function buildHtml(): string {
       }
 
       async function load() {
-        const [status, recent, episodeList, chatList, fileList, jobList, qaLogList, cronJobList] = await Promise.all([
-          fetch("/api/status").then((response) => response.json()),
-          fetch("/api/messages/recent?limit=20").then((response) => response.json()),
-          fetch("/api/episodes?limit=10").then((response) => response.json()),
-          fetch("/api/chats").then((response) => response.json()),
-          fetch("/api/files").then((response) => response.json()),
-          fetch("/api/file-jobs").then((response) => response.json()),
-          fetch("/api/qa-logs?limit=10").then((response) => response.json()),
-          fetch("/api/cron-jobs").then((response) => response.json()),
-        ]);
-        renderMetrics(status);
-        renderMessages(recent.items);
-        renderEpisodes(episodeList.items);
-        renderChats(chatList.items);
-        renderFiles(fileList.items);
-        renderFileJobs(jobList.items);
-        renderQaLogs(qaLogList.items);
-        renderCronJobs(cronJobList.items);
+        try {
+          const [status, recent, episodeList, chatList, fileList, jobList, qaLogList, cronJobList] = await Promise.all([
+            fetch("/api/status").then((response) => response.json()),
+            fetch("/api/messages/recent?limit=20").then((response) => response.json()),
+            fetch("/api/episodes?limit=10").then((response) => response.json()),
+            fetch("/api/chats").then((response) => response.json()),
+            fetch("/api/files").then((response) => response.json()),
+            fetch("/api/file-jobs").then((response) => response.json()),
+            fetch("/api/qa-logs?limit=10").then((response) => response.json()),
+            fetch("/api/cron-jobs").then((response) => response.json()),
+          ]);
+          renderMetrics(status);
+          renderMessages(recent.items);
+          renderEpisodes(episodeList.items);
+          renderChats(chatList.items);
+          renderFiles(fileList.items);
+          renderFileJobs(jobList.items);
+          renderQaLogs(qaLogList.items);
+          renderCronJobs(cronJobList.items);
+        } catch (error) {
+          metrics.innerHTML = '<div class="empty">数据加载失败：' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+        }
       }
 
       async function processNow() {
@@ -508,7 +512,6 @@ function buildHtml(): string {
         }
       }, 5000);
     </script>
-    <script src="/app.js"></script>
   </body>
 </html>`;
 }
@@ -531,10 +534,6 @@ function isAuthorizedWebAction(request: { headers: Record<string, string | strin
   return provided === token;
 }
 
-function extractInlineScript(html: string): string {
-  const match = /<script>([\s\S]*)<\/script>/.exec(html);
-  return match?.[1] ?? "";
-}
 
 export function createWebApp(config: AppConfig): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -672,15 +671,10 @@ export function createWebApp(config: AppConfig): FastifyInstance {
     }
   });
 
-  app.get("/app.js", async (_request, reply) => {
-    await tokenReady;
-    reply.type("application/javascript; charset=utf-8");
-    return extractInlineScript(buildHtml()).replaceAll("__WEB_ACTION_TOKEN__", webActionToken);
-  });
-
   app.get("/", async (_request, reply) => {
+    await tokenReady;
     reply.type("text/html; charset=utf-8");
-    return buildHtml();
+    return buildHtml().replaceAll("__WEB_ACTION_TOKEN__", webActionToken);
   });
 
   return app;

@@ -94,9 +94,9 @@ describe("web server", () => {
       });
       expect(statusJson.data).toHaveProperty("qaLogs");
       expect(statusJson.web).not.toHaveProperty("actionToken");
-      const script = await app.inject({ method: "GET", url: "/app.js" });
-      expect(script.statusCode).toBe(200);
-      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(script.body)?.[1];
+      const homePage = await app.inject({ method: "GET", url: "/" });
+      expect(homePage.statusCode).toBe(200);
+      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(homePage.body)?.[1];
       expect(webActionToken).toHaveLength(64);
 
       const chats = await app.inject({ method: "GET", url: "/api/chats" });
@@ -207,9 +207,6 @@ describe("web server", () => {
       expect(response.body).toContain("data-delete-cron-job");
       expect(response.body).toContain("正在删除定时任务");
       expect(response.body).toContain("x-chattercatcher-web-token");
-      const script = await app.inject({ method: "GET", url: "/app.js" });
-      expect(script.body).toContain("x-chattercatcher-web-token");
-      expect(script.body).not.toContain("__WEB_ACTION_TOKEN__");
       expect(response.body).toContain("chattercatcher process episodes");
       expect(response.body).toContain("立即处理");
       expect(response.body).toContain("setInterval");
@@ -225,8 +222,8 @@ describe("web server", () => {
     config.storage.dataDir = testDir;
     const app = createWebApp(config);
     try {
-      const script = await app.inject({ method: "GET", url: "/app.js" });
-      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(script.body)?.[1];
+      const homePage = await app.inject({ method: "GET", url: "/" });
+      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(homePage.body)?.[1];
       const response = await app.inject({
         method: "POST",
         url: "/api/process/messages",
