@@ -57,11 +57,17 @@ function createCompleteWithToolsMock(sequence: Array<ToolChatResult | ((messages
 
 describe("askWithAgenticRag", () => {
   it("runs a search tool and generates grounded answer from evidence", async () => {
+    const now = new Date("2026-05-10T08:00:00.000Z");
     const tool = createSearchTool("hybrid_search", vi.fn(async () => [evidenceA]));
     const completeWithTools = createCompleteWithToolsMock([
-      {
-        content: "我先查一下。",
-        toolCalls: [{ id: "call-1", name: "hybrid_search", input: { query: "端午活动什么时候" } }],
+      async (messages) => {
+        const joinedMessages = messages.map((message) => message.content).join("\n\n");
+        expect(joinedMessages).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedMessages).toContain("相对时间表述");
+        return {
+          content: "我先查一下。",
+          toolCalls: [{ id: "call-1", name: "hybrid_search", input: { query: "端午活动什么时候" } }],
+        };
       },
       {
         content: "检索完成。",
@@ -72,8 +78,10 @@ describe("askWithAgenticRag", () => {
     const model: ChatModel = {
       completeWithTools,
       async complete(messages) {
-        expect(messages[1]?.content).toContain("检索证据");
-        expect(messages[1]?.content).toContain("[S1]");
+        const joinedPrompt = messages.map((message) => message.content).join("\n\n");
+        expect(joinedPrompt).toContain("检索证据");
+        expect(joinedPrompt).toContain("[S1]");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
         return "端午活动目前是 2026/6/30。[S1]";
       },
     };
@@ -82,6 +90,7 @@ describe("askWithAgenticRag", () => {
       question: "端午活动什么时候？",
       tools: [tool],
       model,
+      now,
     });
 
     expect(tool.execute).toHaveBeenCalledWith({ query: "端午活动什么时候" });

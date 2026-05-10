@@ -6,9 +6,11 @@ export interface AskWithRagInput {
   question: string;
   retriever: Retriever;
   model: ChatModel;
+  now?: Date;
 }
 
 export async function askWithRag(input: AskWithRagInput): Promise<GroundedAnswer> {
+  const now = input.now ?? new Date();
   const evidence = await input.retriever.retrieve(input.question);
 
   if (evidence.length === 0) {
@@ -22,5 +24,6 @@ export async function askWithRag(input: AskWithRagInput): Promise<GroundedAnswer
     question: input.question,
     evidence,
     model: input.model,
+    now,
   });
 }

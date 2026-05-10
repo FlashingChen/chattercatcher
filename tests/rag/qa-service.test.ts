@@ -30,6 +30,7 @@ describe("askWithRag", () => {
   });
 
   it("有证据时通过 RAG prompt 调用模型", async () => {
+    const now = new Date("2026-05-10T08:00:00.000Z");
     const evidence: EvidenceBlock[] = [
       {
         id: "chunk-1",
@@ -50,8 +51,10 @@ describe("askWithRag", () => {
     };
     const model: ChatModel = {
       async complete(messages) {
-        expect(messages[1]?.content).toContain("检索证据");
-        expect(messages[1]?.content).toContain("[S1]");
+        const joinedPrompt = messages.map((message) => message.content).join("\n\n");
+        expect(joinedPrompt).toContain("检索证据");
+        expect(joinedPrompt).toContain("[S1]");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
         return "端午活动目前是 2026/6/30。[S1]";
       },
     };
@@ -60,6 +63,7 @@ describe("askWithRag", () => {
       question: "端午活动什么时候？",
       retriever,
       model,
+      now,
     });
 
     expect(result.answer).toBe("端午活动目前是 2026/6/30。[S1]");

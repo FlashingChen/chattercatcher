@@ -9,6 +9,7 @@ export interface AskWithAgenticRagInput {
   maxModelTurns?: number;
   maxToolCalls?: number;
   maxEvidence?: number;
+  now?: Date;
 }
 
 const DEFAULT_MAX_MODEL_TURNS = 4;
@@ -17,7 +18,7 @@ const DEFAULT_MAX_EVIDENCE = 12;
 const NO_EVIDENCE_ANSWER = "不知道。当前本地知识库没有检索到足够证据。";
 
 const AGENTIC_SYSTEM_PROMPT =
-  "你是本地知识信息收集代理。你的职责是围绕用户问题决定是否调用搜索工具、选择合适的工具和查询词，并根据当前结果决定是否继续搜索。不要编造任何证据或声称看过未检索到的内容。你的输出只用于收集证据，最终答案会由另一个基于证据的步骤生成。";
+  "你是本地知识信息收集代理。你的职责是围绕用户问题决定是否调用搜索工具、选择合适的工具和查询词，并根据当前结果决定是否继续搜索。不要编造任何证据或声称看过未检索到的内容。你的输出只用于收集证据，最终答案会由另一个基于证据的步骤生成。检索证据中的时间戳是消息被发送时的真实时间。若问题或证据包含“今天”“明天”“今晚”等相对时间表述，必须基于当前时间和证据时间戳推导为具体日期。";
 
 function toToolResultContent(results: EvidenceBlock[]): string {
   return JSON.stringify(
@@ -59,12 +60,13 @@ export async function askWithAgenticRag(input: AskWithAgenticRagInput): Promise<
     throw new Error("当前 LLM 客户端不支持工具调用。");
   }
 
+  const now = input.now ?? new Date();
   const maxModelTurns = input.maxModelTurns ?? DEFAULT_MAX_MODEL_TURNS;
   const maxToolCalls = input.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
   const maxEvidence = input.maxEvidence ?? DEFAULT_MAX_EVIDENCE;
   const messages: ChatMessage[] = [
     { role: "system", content: AGENTIC_SYSTEM_PROMPT },
-    { role: "user", content: input.question },
+    { role: "user", content: `当前时间：${now.toISOString()}\n问题：${input.question}` },
   ];
   const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
   let evidence: EvidenceBlock[] = [];
@@ -130,5 +132,6 @@ export async function askWithAgenticRag(input: AskWithAgenticRagInput): Promise<
     question: input.question,
     evidence,
     model: input.model,
+    now,
   });
 }
