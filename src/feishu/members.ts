@@ -48,6 +48,7 @@ interface FeishuChatMembersSdkClientLike {
 export interface FeishuMemberResolverOptions {
   repository: FeishuMemberRepository;
   client: FeishuChatMembersClient;
+  logger?: Pick<Console, "warn">;
   now?: () => Date;
   ttlMs?: number;
 }
@@ -141,10 +142,12 @@ export class FeishuMemberRepository {
 export class FeishuMemberResolver {
   private readonly now: () => Date;
   private readonly ttlMs: number;
+  private readonly logger?: Pick<Console, "warn">;
 
   constructor(private readonly options: FeishuMemberResolverOptions) {
     this.now = options.now ?? (() => new Date());
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+    this.logger = options.logger;
   }
 
   async resolveOpenIdName(chatId: string, openId: string): Promise<string> {
@@ -153,7 +156,12 @@ export class FeishuMemberResolver {
     if (!cached || this.isExpired(cached.updatedAt)) {
       try {
         await this.refreshChatMembers(chatId);
-      } catch {
+      } catch (error) {
+        this.logger?.warn("Failed to refresh Feishu chat members for open id resolution", {
+          chatId,
+          openId,
+          error,
+        });
         return cached?.userName ?? openId;
       }
     }
@@ -162,7 +170,22 @@ export class FeishuMemberResolver {
   }
 
   async resolveUniqueName(chatId: string, userName: string): Promise<FeishuChatMemberRecord | null> {
-    await this.refreshChatMembers(chatId);
+    const cached = this.options.repository.findUniqueByName(chatId, userName);
+    if (cached && !this.isExpired(cached.updatedAt)) {
+      return cached;
+    }
+
+    try {
+      await this.refreshChatMembers(chatId);
+    } catch (error) {
+      this.logger?.warn("Failed to refresh Feishu chat members for unique name resolution", {
+        chatId,
+        userName,
+        error,
+      });
+      return cached ?? null;
+    }
+
     return this.options.repository.findUniqueByName(chatId, userName);
   }
 
