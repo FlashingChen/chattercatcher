@@ -2,8 +2,17 @@ import * as lark from "@larksuiteoapi/node-sdk";
 import fs from "node:fs/promises";
 import type { AppConfig, AppSecrets } from "../config/schema.js";
 
+export interface FeishuTextMention {
+  openId: string;
+  name: string;
+}
+
+export interface SendTextOptions {
+  mentions?: FeishuTextMention[];
+}
+
 export interface MessageSender {
-  sendTextToChat(chatId: string, text: string): Promise<void>;
+  sendTextToChat(chatId: string, text: string, options?: SendTextOptions): Promise<void>;
   sendImageToChat?(chatId: string, imagePath: string): Promise<void>;
   replyTextToMessage?(messageId: string, text: string): Promise<void>;
   addReactionToMessage?(messageId: string, emojiType: string): Promise<void>;
@@ -97,6 +106,19 @@ function extractImageKey(response: unknown): string {
   throw new Error("飞书图片上传响应缺少 image_key。");
 }
 
+function escapeAtText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function formatTextWithMentions(text: string, options?: SendTextOptions): string {
+  const mentions = options?.mentions ?? [];
+  if (mentions.length === 0) return text;
+  const prefix = mentions
+    .map((mention) => `<at user_id="${escapeAtText(mention.openId)}">${escapeAtText(mention.name)}</at>`)
+    .join(" ");
+  return `${prefix} ${text}`.trim();
+}
+
 export class FeishuMessageSender implements MessageSender {
   constructor(private readonly client: FeishuClientLike) {}
 
@@ -110,12 +132,12 @@ export class FeishuMessageSender implements MessageSender {
     return new FeishuMessageSender(client);
   }
 
-  async sendTextToChat(chatId: string, text: string): Promise<void> {
+  async sendTextToChat(chatId: string, text: string, options?: SendTextOptions): Promise<void> {
     const payload = {
       data: {
         receive_id: chatId,
         msg_type: "text",
-        content: JSON.stringify({ text }),
+        content: JSON.stringify({ text: formatTextWithMentions(text, options) }),
       },
       params: {
         receive_id_type: "chat_id" as const,
