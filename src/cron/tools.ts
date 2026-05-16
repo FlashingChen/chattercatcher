@@ -1,3 +1,4 @@
+import type { FeishuMemberResolver } from "../feishu/members.js";
 import type { ChatTool } from "../rag/types.js";
 import type { CronJobRepository } from "./jobs.js";
 
@@ -9,6 +10,7 @@ interface CreateCronJobToolsInput {
   repository: CronJobRepository;
   chatId: string;
   createdByOpenId?: string;
+  memberResolver?: Pick<FeishuMemberResolver, "resolveUniqueName">;
 }
 
 function readString(input: unknown, key: string): string {
@@ -58,17 +60,28 @@ export function createCronJobTools(input: CreateCronJobToolsInput): CronJobTool[
             type: "string",
             description: "Optional image filename already stored from the current chat, for example om_xxx-image.jpg.",
           },
+          mentionTargetName: {
+            type: "string",
+            description: "Optional exact Feishu chat nickname to @ when the scheduled message is sent.",
+          },
         },
         required: ["schedule", "prompt"],
         additionalProperties: false,
       },
       execute: async (rawInput) => {
+        const mentionTargetName = readOptionalString(rawInput, "mentionTargetName");
+        const mentionTarget = mentionTargetName && input.memberResolver
+          ? await input.memberResolver.resolveUniqueName(input.chatId, mentionTargetName)
+          : null;
         const job = input.repository.create({
           chatId: input.chatId,
           createdByOpenId: input.createdByOpenId,
           schedule: readString(rawInput, "schedule"),
           prompt: readString(rawInput, "prompt"),
           imageFileName: readOptionalString(rawInput, "imageFileName"),
+          mentionTargetName,
+          mentionOpenId: mentionTarget?.openId,
+          mentionUserId: mentionTarget?.userId,
         });
         return JSON.stringify({ ok: true, job });
       },

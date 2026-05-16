@@ -18,7 +18,8 @@ import { createFeishuGateway } from "./feishu/gateway.js";
 import type { FeishuReceiveMessageEvent } from "./feishu/normalize.js";
 import { FeishuQuestionHandler } from "./feishu/question.js";
 import { FeishuResourceDownloader } from "./feishu/resource-downloader.js";
-import { FeishuMessageSender } from "./feishu/sender.js";
+import { createFeishuChatMembersClient, FeishuMemberRepository, FeishuMemberResolver } from "./feishu/members.js";
+import { FeishuMessageSender, mapDomain } from "./feishu/sender.js";
 import { ingestLocalFile } from "./files/ingest.js";
 import { FileJobRepository } from "./files/jobs.js";
 import { GatewayIngestor } from "./gateway/ingest.js";
@@ -27,6 +28,7 @@ import { getGatewayStatus } from "./gateway/index.js";
 import { getGatewayLogPath, removeGatewayPidRecord, stopGatewayProcess, writeGatewayPidRecord } from "./gateway/runtime.js";
 import { createChatModel, createEmbeddingModel } from "./llm/openai-compatible.js";
 import { createMultimodalModel } from "./multimodal/openai-compatible.js";
+import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
 import { indexMessageChunks } from "./rag/indexer.js";
@@ -260,6 +262,14 @@ async function startGatewayForegroundCommand(): Promise<void> {
   const database = openDatabase(config);
   const chatModel = createChatModel(config, secrets);
   const sender = FeishuMessageSender.fromConfig(config, secrets);
+  const memberResolver = new FeishuMemberResolver({
+    repository: new FeishuMemberRepository(database),
+    client: createFeishuChatMembersClient(new lark.Client({
+      appId: config.feishu.appId,
+      appSecret: secrets.feishu.appSecret,
+      domain: mapDomain(config.feishu.domain),
+    }) as Parameters<typeof createFeishuChatMembersClient>[0]),
+  });
   const vectorStore = hasEmbeddingConfig(config, secrets)
     ? new SqliteVectorStore(database, { model: config.embedding.model })
     : null;
@@ -300,6 +310,7 @@ async function startGatewayForegroundCommand(): Promise<void> {
       config,
       secrets,
       database,
+      memberResolver,
       sender,
       model: chatModel,
     }),

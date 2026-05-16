@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultConfig, createDefaultSecrets } from "../../src/config/schema.js";
 import { openDatabase } from "../../src/db/database.js";
+import { FeishuMemberRepository } from "../../src/feishu/members.js";
 import { FeishuQuestionHandler, getFeishuQuestionDecision } from "../../src/feishu/question.js";
 import type { MessageSender } from "../../src/feishu/sender.js";
 import { MessageRepository } from "../../src/messages/repository.js";
@@ -250,6 +251,67 @@ describe("FeishuQuestionHandler", () => {
     } finally {
       database.close();
       vi.useRealTimers();
+    }
+  });
+
+  it("把当前群聊成员映射注入问答系统提示词", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    config.feishu.botOpenId = "ou_bot";
+    const secrets = createDefaultSecrets();
+    const database = openDatabase(config);
+    const capturedMessages: Parameters<NonNullable<ChatModel["completeWithTools"]>>[0][] = [];
+
+    try {
+      const memberRepository = new FeishuMemberRepository(database);
+      memberRepository.upsert({
+        chatId: "oc_family",
+        openId: "ou_mom",
+        userId: "u_mom",
+        userName: "妈妈",
+        updatedAt: "2026-05-16T00:00:00.000Z",
+      });
+      memberRepository.upsert({
+        chatId: "oc_other",
+        openId: "ou_other",
+        userName: "其他群昵称",
+        updatedAt: "2026-05-16T00:00:00.000Z",
+      });
+
+      await new FeishuQuestionHandler({
+        config,
+        secrets,
+        database,
+        memberRepository,
+        model: {
+          completeWithTools: vi.fn(async (messages) => {
+            capturedMessages.push(messages);
+            return { content: "已知妈妈说端午活动在 2026/6/30。", toolCalls: [] };
+          }),
+          async complete() {
+            throw new Error("complete should not be called");
+          },
+        },
+        sender: {
+          async sendTextToChat() {},
+        },
+      }).handle({
+        event: {
+          message: {
+            message_id: "om_question",
+            chat_id: "oc_family",
+            message_type: "text",
+            content: JSON.stringify({ text: "@_user_1 端午活动谁说的？" }),
+            mentions: [{ name: "小陈", key: "@_user_1", id: { open_id: "ou_bot" } }],
+          },
+        },
+      });
+
+      expect(capturedMessages[0]?.[0]?.content).toContain("当前群聊成员 ID 与群昵称映射：\nou_mom = 妈妈");
+      expect(capturedMessages[0]?.[0]?.content).toContain("回答中遇到上述 ID 时优先使用对应群昵称");
+      expect(capturedMessages[0]?.[0]?.content).not.toContain("ou_other");
+    } finally {
+      database.close();
     }
   });
 

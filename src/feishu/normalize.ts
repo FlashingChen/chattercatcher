@@ -208,9 +208,11 @@ export function normalizeFeishuReceiveMessageEvent(payload: FeishuReceiveMessage
     return null;
   }
 
+  const senderOpenId = event.sender?.sender_id?.open_id;
+  const senderUserId = event.sender?.sender_id?.user_id;
   const senderId =
-    event.sender?.sender_id?.open_id ||
-    event.sender?.sender_id?.user_id ||
+    senderOpenId ||
+    senderUserId ||
     event.sender?.sender_id?.union_id ||
     "unknown";
 
@@ -228,6 +230,10 @@ export function normalizeFeishuReceiveMessageEvent(payload: FeishuReceiveMessage
       platform: "feishu",
       raw: payload,
       content,
+      sender: {
+        ...(senderOpenId ? { openId: senderOpenId } : {}),
+        ...(senderUserId ? { userId: senderUserId } : {}),
+      },
       attachment: extractFeishuAttachment(messageType, content),
     },
   };

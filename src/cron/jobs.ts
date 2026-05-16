@@ -11,6 +11,9 @@ export interface CronJobRecord {
   schedule: string;
   prompt: string;
   imageFileName?: string;
+  mentionTargetName?: string;
+  mentionOpenId?: string;
+  mentionUserId?: string;
   status: CronJobStatus;
   lastRunAt?: string;
   nextRunAt: string;
@@ -30,6 +33,9 @@ interface CronJobRow {
   schedule: string;
   prompt: string;
   imageFileName: string | null;
+  mentionTargetName: string | null;
+  mentionOpenId: string | null;
+  mentionUserId: string | null;
   status: CronJobStatus;
   lastRunAt: string | null;
   nextRunAt: string;
@@ -54,10 +60,16 @@ export class CronJobRepository {
     schedule: string;
     prompt: string;
     imageFileName?: string;
+    mentionTargetName?: string;
+    mentionOpenId?: string;
+    mentionUserId?: string;
   }): CronJobRecord {
     const schedule = input.schedule.trim();
     const prompt = input.prompt.trim();
     const imageFileName = input.imageFileName?.trim();
+    const mentionTargetName = input.mentionTargetName?.trim();
+    const mentionOpenId = input.mentionOpenId?.trim();
+    const mentionUserId = input.mentionUserId?.trim();
     if (!isValidCronSchedule(schedule)) {
       throw new Error("cron 表达式无效。");
     }
@@ -78,6 +90,9 @@ export class CronJobRepository {
       schedule,
       prompt,
       ...(imageFileName ? { imageFileName } : {}),
+      ...(mentionTargetName ? { mentionTargetName } : {}),
+      ...(mentionOpenId ? { mentionOpenId } : {}),
+      ...(mentionUserId ? { mentionUserId } : {}),
       status: "active",
       nextRunAt: nextRunAt.toISOString(),
       createdAt: now.toISOString(),
@@ -88,11 +103,13 @@ export class CronJobRepository {
       .prepare(
         `
         INSERT INTO cron_jobs (
-          id, chat_id, created_by_open_id, schedule, prompt, image_file_name, status,
+          id, chat_id, created_by_open_id, schedule, prompt, image_file_name,
+          mention_target_name, mention_open_id, mention_user_id, status,
           last_run_at, next_run_at, last_error, created_at, updated_at
         )
         VALUES (
-          @id, @chatId, @createdByOpenId, @schedule, @prompt, @imageFileName, @status,
+          @id, @chatId, @createdByOpenId, @schedule, @prompt, @imageFileName,
+          @mentionTargetName, @mentionOpenId, @mentionUserId, @status,
           NULL, @nextRunAt, NULL, @createdAt, @updatedAt
         )
       `,
@@ -100,6 +117,9 @@ export class CronJobRepository {
       .run({
         ...record,
         imageFileName: record.imageFileName ?? null,
+        mentionTargetName: record.mentionTargetName ?? null,
+        mentionOpenId: record.mentionOpenId ?? null,
+        mentionUserId: record.mentionUserId ?? null,
       });
 
     return record;
@@ -132,6 +152,9 @@ export class CronJobRepository {
           schedule,
           prompt,
           image_file_name AS imageFileName,
+          mention_target_name AS mentionTargetName,
+          mention_open_id AS mentionOpenId,
+          mention_user_id AS mentionUserId,
           status,
           last_run_at AS lastRunAt,
           next_run_at AS nextRunAt,
@@ -153,6 +176,9 @@ export class CronJobRepository {
       schedule: row.schedule,
       prompt: row.prompt,
       imageFileName: row.imageFileName ?? undefined,
+      mentionTargetName: row.mentionTargetName ?? undefined,
+      mentionOpenId: row.mentionOpenId ?? undefined,
+      mentionUserId: row.mentionUserId ?? undefined,
       status: row.status,
       lastRunAt: row.lastRunAt ?? undefined,
       nextRunAt: row.nextRunAt,
@@ -246,6 +272,9 @@ export class CronJobRepository {
           schedule,
           prompt,
           image_file_name AS imageFileName,
+          mention_target_name AS mentionTargetName,
+          mention_open_id AS mentionOpenId,
+          mention_user_id AS mentionUserId,
           status,
           last_run_at AS lastRunAt,
           next_run_at AS nextRunAt,
@@ -267,6 +296,9 @@ export class CronJobRepository {
       schedule: row.schedule,
       prompt: row.prompt,
       imageFileName: row.imageFileName ?? undefined,
+      mentionTargetName: row.mentionTargetName ?? undefined,
+      mentionOpenId: row.mentionOpenId ?? undefined,
+      mentionUserId: row.mentionUserId ?? undefined,
       status: row.status,
       lastRunAt: row.lastRunAt ?? undefined,
       nextRunAt: row.nextRunAt,

@@ -163,4 +163,68 @@ describe("CronJobRepository", () => {
       database.close();
     }
   });
+
+  it("persists cron mention targets", () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const repository = new CronJobRepository(database, { now: () => new Date(2026, 4, 5, 8, 58, 0) });
+      const created = repository.create({
+        chatId: "chat-a",
+        schedule: "0 9 * * *",
+        prompt: "提醒妈妈带水杯",
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+
+      expect(repository.get(created.id)).toMatchObject({
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+      expect(repository.listDue(new Date(2026, 4, 5, 9, 0, 0))[0]).toMatchObject({
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("creates Feishu member mapping and cron mention columns without rewriting messages", () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const memberColumns = database.prepare("PRAGMA table_info(feishu_chat_members)").all() as Array<{ name: string }>;
+      expect(memberColumns.map((column) => column.name)).toEqual([
+        "chat_id",
+        "open_id",
+        "user_id",
+        "user_name",
+        "updated_at",
+      ]);
+
+      const cronColumns = database.prepare("PRAGMA table_info(cron_jobs)").all() as Array<{ name: string }>;
+      expect(cronColumns.map((column) => column.name)).toEqual(expect.arrayContaining([
+        "mention_target_name",
+        "mention_open_id",
+        "mention_user_id",
+      ]));
+
+      database.prepare(`
+        INSERT INTO feishu_chat_members (chat_id, open_id, user_id, user_name, updated_at)
+        VALUES ('oc_family', 'ou_mom', 'u_mom', '妈妈', '2026-05-16T00:00:00.000Z')
+      `).run();
+
+      expect(database.prepare("SELECT sender_name FROM messages").all()).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
 });

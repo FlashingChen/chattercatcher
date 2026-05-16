@@ -162,19 +162,36 @@ describe("createFeishuGateway", () => {
     expect(indexingScheduler.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("长连接事件进入 GatewayIngestor 并写入消息库", async () => {
+  it("长连接事件在最小 Gateway 配置下仍携带成员解析器", async () => {
     const config = createDefaultConfig();
     config.storage.dataDir = testDir;
     config.feishu.appId = "cli_app_id";
     const secrets = createDefaultSecrets();
     secrets.feishu.appSecret = "app_secret";
     const database = openDatabase(config);
+    const ingestor = new GatewayIngestor(database);
+    const ingestFeishuEventWithMembers = vi.spyOn(ingestor, "ingestFeishuEventWithMembers").mockResolvedValue({
+      accepted: true,
+      messageId: "msg_1",
+      message: {
+        platform: "feishu",
+        chatName: "oc_family",
+        platformChatId: "oc_family",
+        platformMessageId: "om_1",
+        senderId: "ou_mom",
+        senderName: "妈妈",
+        messageType: "text",
+        text: "端午活动改到 2026/6/30，以这个为准。",
+        sentAt: "2026-05-16T10:00:00.000Z",
+      },
+      duplicate: false,
+    });
 
     try {
       const runtime = createFeishuGateway({
         config,
         secrets,
-        ingestor: new GatewayIngestor(database),
+        ingestor,
         wsClientFactory: () => ({
           async start(params: { eventDispatcher: lark.EventDispatcher }) {
             const handler = params.eventDispatcher.handles.get("im.message.receive_v1");
@@ -196,10 +213,71 @@ describe("createFeishuGateway", () => {
 
       await runtime.start();
 
-      const messages = new MessageRepository(database);
-      expect(messages.getMessageCount()).toBe(1);
-      expect(messages.searchMessages("端午活动什么时候")[0]?.text).toContain("2026/6/30");
+      expect(ingestFeishuEventWithMembers).toHaveBeenCalledTimes(1);
+      expect(ingestFeishuEventWithMembers.mock.calls[0]?.[0].memberResolver).toBeDefined();
     } finally {
+      ingestFeishuEventWithMembers.mockRestore();
+      database.close();
+    }
+  });
+
+  it("附件下载路径同样使用成员解析器入库", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    config.feishu.appId = "cli_app_id";
+    const secrets = createDefaultSecrets();
+    secrets.feishu.appSecret = "app_secret";
+    const database = openDatabase(config);
+    const ingestor = new GatewayIngestor(database);
+    const ingestFeishuEventAndDownloadAttachments = vi
+      .spyOn(ingestor, "ingestFeishuEventAndDownloadAttachments")
+      .mockResolvedValue({
+        accepted: true,
+        messageId: "msg_file",
+        message: {
+          platform: "feishu",
+          chatName: "oc_family",
+          platformMessageId: "om_file",
+          platformChatId: "oc_family",
+          senderId: "ou_mom",
+          senderName: "妈妈",
+          text: "活动安排.md",
+          messageType: "file",
+          sentAt: "2026-05-16T10:00:00.000Z",
+        },
+        duplicate: false,
+      });
+
+    try {
+      const runtime = createFeishuGateway({
+        config,
+        secrets,
+        ingestor,
+        resourceDownloader: {} as never,
+        wsClientFactory: () => ({
+          async start(params: { eventDispatcher: lark.EventDispatcher }) {
+            const handler = params.eventDispatcher.handles.get("im.message.receive_v1");
+            await handler?.({
+              sender: { sender_id: { open_id: "ou_mom" } },
+              message: {
+                message_id: "om_file",
+                chat_id: "oc_family",
+                create_time: "1777111200000",
+                message_type: "file",
+                content: JSON.stringify({ file_key: "file_v2_xxx", file_name: "活动安排.md" }),
+              },
+            });
+          },
+          close() {},
+        }),
+      });
+
+      await runtime.start();
+
+      expect(ingestFeishuEventAndDownloadAttachments).toHaveBeenCalledTimes(1);
+      expect(ingestFeishuEventAndDownloadAttachments.mock.calls[0]?.[0].memberResolver).toBeDefined();
+    } finally {
+      ingestFeishuEventAndDownloadAttachments.mockRestore();
       database.close();
     }
   });

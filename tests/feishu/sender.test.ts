@@ -32,6 +32,38 @@ describe("FeishuMessageSender", () => {
     ]);
   });
 
+  it("sends text messages with explicit Feishu mentions", async () => {
+    const calls: unknown[] = [];
+    const sender = new FeishuMessageSender({
+      im: {
+        v1: {
+          message: {
+            async create(payload) {
+              calls.push(payload);
+            },
+          },
+        },
+      },
+    });
+
+    await sender.sendTextToChat("oc_family", "记得带水杯", {
+      mentions: [{ openId: "ou_mom", name: "妈妈" }],
+    });
+
+    expect(calls).toEqual([
+      {
+        data: {
+          receive_id: "oc_family",
+          msg_type: "text",
+          content: JSON.stringify({ text: '<at user_id="ou_mom">妈妈</at> 记得带水杯' }),
+        },
+        params: {
+          receive_id_type: "chat_id",
+        },
+      },
+    ]);
+  });
+
   it("优先支持回复指定飞书消息", async () => {
     const calls: unknown[] = [];
     const sender = new FeishuMessageSender({

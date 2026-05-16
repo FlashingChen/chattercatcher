@@ -6,6 +6,7 @@ interface GenerateCronJobMessageInput {
   model: ChatModel;
   tools: RagSearchTool[];
   now: Date;
+  memberPrompt?: string;
   maxModelTurns?: number;
   maxToolCalls?: number;
 }
@@ -30,8 +31,11 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
     throw new Error("当前 LLM 客户端不支持工具调用。");
   }
 
+  const systemPrompt = input.memberPrompt
+    ? `${SYSTEM_PROMPT}\n\n${input.memberPrompt}\n生成消息时遇到上述 ID 时优先使用对应群昵称；没有映射时保留原 ID，不要编造昵称。`
+    : SYSTEM_PROMPT;
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: `当前时间：${input.now.toISOString()}\n任务提示词：${input.prompt}` },
   ];
   const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
@@ -51,7 +55,7 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
     for (const call of result.toolCalls) {
       if (toolCallsUsed >= maxToolCalls) {
         return input.model.complete([
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           {
             role: "user",
             content: `当前时间：${input.now.toISOString()}\n任务提示词：${input.prompt}\n\n证据：\n${evidenceToText(evidence)}`,

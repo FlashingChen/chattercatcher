@@ -19,6 +19,7 @@ import type { FeishuReceiveMessageEvent } from "./normalize.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { MultimodalModel } from "../multimodal/types.js";
 import { ImageMultimodalWorker } from "../multimodal/worker.js";
+import { createFeishuChatMembersClient, FeishuMemberRepository, FeishuMemberResolver, formatFeishuMemberPrompt } from "./members.js";
 import { getFeishuQuestionDecision, isFeishuMessageAddressedToBot } from "./question.js";
 import type { FeishuQuestionHandler } from "./question.js";
 import { FeishuResourceDownloader } from "./resource-downloader.js";
@@ -78,6 +79,7 @@ export function createFeishuEventDispatcher(options: {
   config: AppConfig;
   secrets: AppSecrets;
   ingestor: GatewayIngestor;
+  memberResolver?: FeishuMemberResolver;
   questionHandler?: FeishuQuestionHandler;
   resourceDownloader?: FeishuResourceDownloader;
   attachmentVectorIndexer?: (messageId: string) => Promise<{ chunks: number; vectors: number }>;
@@ -108,15 +110,24 @@ export function createFeishuEventDispatcher(options: {
         }
       }
 
-      const result: GatewayIngestAndDownloadResult = options.resourceDownloader
-        ? await options.ingestor.ingestFeishuEventAndDownloadAttachments({
-            payload,
-            downloader: options.resourceDownloader,
-            config: options.config,
-            secrets: options.secrets,
-            vectorIndexMessage: options.attachmentVectorIndexer,
-          })
-        : options.ingestor.ingestFeishuEvent(payload);
+      let result: GatewayIngestAndDownloadResult;
+      if (options.resourceDownloader) {
+        result = await options.ingestor.ingestFeishuEventAndDownloadAttachments({
+          payload,
+          downloader: options.resourceDownloader,
+          config: options.config,
+          secrets: options.secrets,
+          vectorIndexMessage: options.attachmentVectorIndexer,
+          memberResolver: options.memberResolver,
+        });
+      } else if (options.memberResolver) {
+        result = await options.ingestor.ingestFeishuEventWithMembers({
+          payload,
+          memberResolver: options.memberResolver,
+        });
+      } else {
+        result = options.ingestor.ingestFeishuEvent(payload);
+      }
 
       if (!result.accepted) {
         console.log(`飞书消息未入库：${result.reason}`);
@@ -218,10 +229,21 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
       onReconnected: () => console.log("飞书长连接已重连。"),
     });
 
+  const memberResolver = new FeishuMemberResolver({
+    repository: new FeishuMemberRepository(options.ingestor.database),
+    client: createFeishuChatMembersClient(new lark.Client({
+      appId: options.config.feishu.appId,
+      appSecret: options.secrets.feishu.appSecret,
+      domain: mapDomain(options.config.feishu.domain),
+    }) as Parameters<typeof createFeishuChatMembersClient>[0]),
+  });
+  options.questionHandler?.setMemberResolver?.(memberResolver);
+
   const eventDispatcher = createFeishuEventDispatcher({
     config: options.config,
     secrets: options.secrets,
     ingestor: options.ingestor,
+    memberResolver,
     questionHandler: options.questionHandler,
     resourceDownloader: options.resourceDownloader,
     attachmentVectorIndexer: options.attachmentVectorIndexer,
@@ -249,7 +271,7 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
     options.cronJobProcessor
       ? createCronJobScheduler({
           repository: new CronJobRepository(options.cronJobProcessor.database),
-          sendTextToChat: (chatId, text) => options.cronJobProcessor!.sender.sendTextToChat(chatId, text),
+          sendTextToChat: (chatId, text, sendOptions) => options.cronJobProcessor!.sender.sendTextToChat(chatId, text, sendOptions),
           sendImageToChat: options.cronJobProcessor.sender.sendImageToChat
             ? (chatId, imageFileName) => options.cronJobProcessor!.sender.sendImageToChat!(
                 chatId,
@@ -265,7 +287,16 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
               scope: { platform: "feishu", platformChatId: job.chatId },
             });
             try {
-              return await generateCronJobMessage({ prompt: job.prompt, model: options.cronJobProcessor!.model, tools, now });
+              const memberPrompt = formatFeishuMemberPrompt(
+                new FeishuMemberRepository(options.cronJobProcessor!.database).listByChat(job.chatId),
+              );
+              return await generateCronJobMessage({
+                prompt: job.prompt,
+                model: options.cronJobProcessor!.model,
+                tools,
+                now,
+                memberPrompt,
+              });
             } finally {
               close();
             }

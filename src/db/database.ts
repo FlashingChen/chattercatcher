@@ -161,6 +161,18 @@ export function migrateDatabase(database: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS image_multimodal_tasks_status_idx ON image_multimodal_tasks(status, updated_at);
 
+    CREATE TABLE IF NOT EXISTS feishu_chat_members (
+      chat_id TEXT NOT NULL,
+      open_id TEXT NOT NULL,
+      user_id TEXT,
+      user_name TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_id, open_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS feishu_chat_members_chat_name_idx
+    ON feishu_chat_members(chat_id, user_name);
+
     CREATE TABLE IF NOT EXISTS cron_jobs (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,
@@ -178,10 +190,29 @@ export function migrateDatabase(database: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS cron_jobs_chat_status_idx ON cron_jobs(chat_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS feishu_chat_members (
+      chat_id TEXT NOT NULL,
+      open_id TEXT NOT NULL,
+      user_id TEXT,
+      user_name TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_id, open_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS feishu_chat_members_chat_name_idx
+    ON feishu_chat_members(chat_id, user_name);
   `);
 
   const cronJobColumns = database.prepare("PRAGMA table_info(cron_jobs)").all() as Array<{ name: string }>;
-  if (!cronJobColumns.some((column) => column.name === "image_file_name")) {
-    database.prepare("ALTER TABLE cron_jobs ADD COLUMN image_file_name TEXT").run();
-  }
+  const ensureCronJobColumn = (name: string, definition: string): void => {
+    if (!cronJobColumns.some((column) => column.name === name)) {
+      database.prepare(`ALTER TABLE cron_jobs ADD COLUMN ${definition}`).run();
+    }
+  };
+
+  ensureCronJobColumn("image_file_name", "image_file_name TEXT");
+  ensureCronJobColumn("mention_target_name", "mention_target_name TEXT");
+  ensureCronJobColumn("mention_open_id", "mention_open_id TEXT");
+  ensureCronJobColumn("mention_user_id", "mention_user_id TEXT");
 }

@@ -1,5 +1,6 @@
 import type { AppConfig, AppSecrets } from "../config/schema.js";
 import type { SqliteDatabase } from "../db/database.js";
+import type { FeishuMemberResolver } from "../feishu/members.js";
 import {
   normalizeFeishuReceiveMessageEvent,
   type FeishuAttachmentMetadata,
@@ -36,6 +37,15 @@ export interface GatewayIngestAndDownloadResult extends GatewayIngestResult {
   attachment?: GatewayAttachmentIngestResult;
 }
 
+function extractFeishuSenderOpenId(message: IngestMessageInput): string | undefined {
+  const raw = message.rawPayload;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const sender = (raw as { sender?: unknown }).sender;
+  if (!sender || typeof sender !== "object" || Array.isArray(sender)) return undefined;
+  const openId = (sender as { openId?: unknown }).openId;
+  return typeof openId === "string" && openId.trim() ? openId.trim() : undefined;
+}
+
 function extractAttachment(message: IngestMessageInput): FeishuAttachmentMetadata | undefined {
   const raw = message.rawPayload;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -64,7 +74,7 @@ export class GatewayIngestor {
   private readonly jobs: FileJobRepository;
   private readonly imageTasks: ImageMultimodalTaskRepository;
 
-  constructor(database: SqliteDatabase) {
+  constructor(public readonly database: SqliteDatabase) {
     this.messages = new MessageRepository(database);
     this.jobs = new FileJobRepository(database);
     this.imageTasks = new ImageMultimodalTaskRepository(database);
@@ -89,14 +99,44 @@ export class GatewayIngestor {
     };
   }
 
+  async ingestFeishuEventWithMembers(input: {
+    payload: FeishuReceiveMessageEvent;
+    memberResolver: Pick<FeishuMemberResolver, "resolveOpenIdName">;
+  }): Promise<GatewayIngestResult> {
+    const normalized = normalizeFeishuReceiveMessageEvent(input.payload);
+    if (!normalized) {
+      return {
+        accepted: false,
+        reason: "事件不是可入库的飞书消息。",
+      };
+    }
+
+    const openId = extractFeishuSenderOpenId(normalized);
+    const senderName = openId
+      ? await input.memberResolver.resolveOpenIdName(normalized.platformChatId, openId)
+      : normalized.senderName;
+    const enriched = { ...normalized, senderName };
+    const duplicate = this.messages.hasPlatformMessage(enriched.platform, enriched.platformMessageId);
+    const messageId = this.messages.ingest(enriched);
+    return {
+      accepted: true,
+      messageId,
+      message: enriched,
+      duplicate,
+    };
+  }
+
   async ingestFeishuEventAndDownloadAttachments(input: {
     payload: FeishuReceiveMessageEvent;
     downloader: FeishuResourceDownloader;
     config: AppConfig;
     secrets: AppSecrets;
     vectorIndexMessage?: (messageId: string) => Promise<{ chunks: number; vectors: number }>;
+    memberResolver?: Pick<FeishuMemberResolver, "resolveOpenIdName">;
   }): Promise<GatewayIngestAndDownloadResult> {
-    const result = this.ingestFeishuEvent(input.payload);
+    const result = input.memberResolver
+      ? await this.ingestFeishuEventWithMembers({ payload: input.payload, memberResolver: input.memberResolver })
+      : this.ingestFeishuEvent(input.payload);
     if (!result.accepted || !result.messageId || !result.message || result.duplicate) {
       return result;
     }

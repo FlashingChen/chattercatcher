@@ -25,8 +25,14 @@ describe("normalizeFeishuReceiveMessageEvent", () => {
       platformChatId: "oc_family",
       platformMessageId: "om_1",
       senderId: "ou_mom",
+      senderName: "ou_mom",
       messageType: "text",
       text: "端午活动改到 2026/6/30，以这个为准。",
+      rawPayload: {
+        sender: {
+          openId: "ou_mom",
+        },
+      },
     });
     expect(result?.sentAt).toBe("2026-04-25T10:00:00.000Z");
   });

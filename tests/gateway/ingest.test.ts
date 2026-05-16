@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultConfig, createDefaultSecrets } from "../../src/config/schema.js";
 import { openDatabase } from "../../src/db/database.js";
+import type { FeishuMemberResolver } from "../../src/feishu/members.js";
 import { FeishuResourceDownloader } from "../../src/feishu/resource-downloader.js";
 import { GatewayIngestor } from "../../src/gateway/ingest.js";
 import { MessageRepository } from "../../src/messages/repository.js";
@@ -83,6 +84,129 @@ describe("GatewayIngestor", () => {
       expect(first).toMatchObject({ accepted: true, duplicate: false });
       expect(second).toMatchObject({ accepted: true, duplicate: true, messageId: first.messageId });
       expect(new MessageRepository(database).getMessageCount()).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("resolves Feishu sender name before storing new messages", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const ingestor = new GatewayIngestor(database);
+      const resolveOpenIdName = vi.fn(async (chatId: string, openId: string) => {
+        expect(chatId).toBe("oc_family");
+        expect(openId).toBe("ou_mom");
+        return "妈妈";
+      });
+      const resolver = {
+        resolveOpenIdName,
+      } as Pick<FeishuMemberResolver, "resolveOpenIdName">;
+
+      const result = await ingestor.ingestFeishuEventWithMembers({
+        payload: {
+          event: {
+            sender: { sender_id: { open_id: "ou_mom" } },
+            message: {
+              message_id: "om_1",
+              chat_id: "oc_family",
+              message_type: "text",
+              content: JSON.stringify({ text: "今晚记得带水杯" }),
+            },
+          },
+        },
+        memberResolver: resolver,
+      });
+
+      const stored = database
+        .prepare(
+          `
+            SELECT sender_id AS senderId, sender_name AS senderName
+            FROM messages
+            WHERE platform = ? AND platform_message_id = ?
+          `,
+        )
+        .get("feishu", "om_1") as { senderId: string; senderName: string } | undefined;
+
+      expect(result.message).toMatchObject({ senderId: "ou_mom", senderName: "妈妈" });
+      expect(stored).toMatchObject({ senderId: "ou_mom", senderName: "妈妈" });
+      expect(resolveOpenIdName).toHaveBeenCalledTimes(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("falls back without resolver when sender open_id is missing", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const ingestor = new GatewayIngestor(database);
+      const resolveOpenIdName = vi.fn(async () => "should-not-be-used");
+      const resolver = {
+        resolveOpenIdName,
+      } as Pick<FeishuMemberResolver, "resolveOpenIdName">;
+
+      const result = await ingestor.ingestFeishuEventWithMembers({
+        payload: {
+          event: {
+            sender: { sender_id: { union_id: "on_union_only" } },
+            message: {
+              message_id: "om_no_open_id",
+              chat_id: "oc_family",
+              message_type: "text",
+              content: JSON.stringify({ text: "没有 open_id 也能入库" }),
+            },
+          },
+        },
+        memberResolver: resolver,
+      });
+
+      expect(result.message).toMatchObject({
+        senderId: "on_union_only",
+        senderName: "on_union_only",
+      });
+      expect(resolveOpenIdName).not.toHaveBeenCalled();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("does not resolve sender nickname for user_id-only events", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const ingestor = new GatewayIngestor(database);
+      const resolveOpenIdName = vi.fn(async () => "should-not-be-used");
+      const resolver = {
+        resolveOpenIdName,
+      } as Pick<FeishuMemberResolver, "resolveOpenIdName">;
+
+      const result = await ingestor.ingestFeishuEventWithMembers({
+        payload: {
+          event: {
+            sender: { sender_id: { user_id: "u_only_sender" } },
+            message: {
+              message_id: "om_user_only",
+              chat_id: "oc_family",
+              message_type: "text",
+              content: JSON.stringify({ text: "只有 user_id 的事件" }),
+            },
+          },
+        },
+        memberResolver: resolver,
+      });
+
+      expect(result.message).toMatchObject({
+        senderId: "u_only_sender",
+        senderName: "u_only_sender",
+      });
+      expect(resolveOpenIdName).not.toHaveBeenCalled();
     } finally {
       database.close();
     }
