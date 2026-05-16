@@ -8,6 +8,52 @@ export interface FeishuChatMemberRecord {
   updatedAt: string;
 }
 
+export interface FeishuChatMemberApiRecord {
+  openId: string;
+  userId?: string;
+  userName: string;
+}
+
+export interface FeishuChatMembersClient {
+  listChatMembers(payload: { chatId: string; memberIdType: "open_id" }): Promise<FeishuChatMemberApiRecord[]>;
+}
+
+interface FeishuChatMembersSdkPageRecord {
+  member_id?: string;
+  name?: string;
+  user_id?: string;
+}
+
+interface FeishuChatMembersSdkResponse {
+  data?: {
+    items?: FeishuChatMembersSdkPageRecord[];
+    page_token?: string;
+    has_more?: boolean;
+  };
+}
+
+interface FeishuChatMembersSdkClientLike {
+  im: {
+    v1?: {
+      chatMembers?: {
+        get(payload: {
+          params: { member_id_type: "open_id"; page_token?: string };
+          path: { chat_id: string };
+        }): Promise<FeishuChatMembersSdkResponse>;
+      };
+    };
+  };
+}
+
+export interface FeishuMemberResolverOptions {
+  repository: FeishuMemberRepository;
+  client: FeishuChatMembersClient;
+  now?: () => Date;
+  ttlMs?: number;
+}
+
+const DEFAULT_TTL_MS = 60 * 60 * 1000;
+
 export class FeishuMemberRepository {
   constructor(private readonly database: SqliteDatabase) {}
 
@@ -90,4 +136,98 @@ export class FeishuMemberRepository {
 
     return rows.length === 1 ? rows[0]! : null;
   }
+}
+
+export class FeishuMemberResolver {
+  private readonly now: () => Date;
+  private readonly ttlMs: number;
+
+  constructor(private readonly options: FeishuMemberResolverOptions) {
+    this.now = options.now ?? (() => new Date());
+    this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  }
+
+  async resolveOpenIdName(chatId: string, openId: string): Promise<string> {
+    const cached = this.options.repository.get(chatId, openId);
+
+    if (!cached || this.isExpired(cached.updatedAt)) {
+      try {
+        await this.refreshChatMembers(chatId);
+      } catch {
+        return cached?.userName ?? openId;
+      }
+    }
+
+    return this.options.repository.get(chatId, openId)?.userName ?? openId;
+  }
+
+  async resolveUniqueName(chatId: string, userName: string): Promise<FeishuChatMemberRecord | null> {
+    await this.refreshChatMembers(chatId);
+    return this.options.repository.findUniqueByName(chatId, userName);
+  }
+
+  private isExpired(updatedAt: string): boolean {
+    const updatedAtMs = Date.parse(updatedAt);
+    if (Number.isNaN(updatedAtMs)) {
+      return true;
+    }
+
+    return this.now().getTime() - updatedAtMs >= this.ttlMs;
+  }
+
+  private async refreshChatMembers(chatId: string): Promise<void> {
+    const members = await this.options.client.listChatMembers({ chatId, memberIdType: "open_id" });
+    const updatedAt = this.now().toISOString();
+
+    for (const member of members) {
+      this.options.repository.upsert({
+        chatId,
+        openId: member.openId,
+        userId: member.userId,
+        userName: member.userName,
+        updatedAt,
+      });
+    }
+  }
+}
+
+export function createFeishuChatMembersClient(client: FeishuChatMembersSdkClientLike): FeishuChatMembersClient {
+  return {
+    async listChatMembers(payload) {
+      const api = client.im.v1?.chatMembers?.get;
+      if (!api) {
+        throw new Error("当前飞书 SDK 不支持 chatMembers.get，无法获取群成员。");
+      }
+
+      const members: FeishuChatMemberApiRecord[] = [];
+      let pageToken: string | undefined;
+
+      do {
+        const response = await api({
+          path: { chat_id: payload.chatId },
+          params: {
+            member_id_type: payload.memberIdType,
+            ...(pageToken ? { page_token: pageToken } : {}),
+          },
+        });
+        const items = response.data?.items ?? [];
+
+        for (const item of items) {
+          if (!item.member_id || !item.name) {
+            continue;
+          }
+
+          members.push({
+            openId: item.member_id,
+            userId: item.user_id,
+            userName: item.name,
+          });
+        }
+
+        pageToken = response.data?.has_more ? response.data.page_token : undefined;
+      } while (pageToken);
+
+      return members;
+    },
+  };
 }
