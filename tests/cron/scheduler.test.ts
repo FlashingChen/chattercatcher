@@ -13,6 +13,9 @@ function job(input: Partial<CronJobRecord> = {}): CronJobRecord {
     createdAt: input.createdAt ?? "2026-05-05T08:00:00.000Z",
     updatedAt: input.updatedAt ?? "2026-05-05T08:00:00.000Z",
     ...(input.imageFileName ? { imageFileName: input.imageFileName } : {}),
+    ...(input.mentionTargetName ? { mentionTargetName: input.mentionTargetName } : {}),
+    ...(input.mentionOpenId ? { mentionOpenId: input.mentionOpenId } : {}),
+    ...(input.mentionUserId ? { mentionUserId: input.mentionUserId } : {}),
   };
 }
 
@@ -59,6 +62,24 @@ describe("createCronJobScheduler", () => {
     expect(sendText).toHaveBeenCalledWith("chat-a", "记得取餐");
     expect(sendImage).toHaveBeenCalledWith("chat-a", "order-code.jpg");
     expect(repository.markSuccess).toHaveBeenCalledWith("job-1", now());
+  });
+
+  it("sends due jobs with resolved mention metadata", async () => {
+    const due = job({ mentionTargetName: "妈妈", mentionOpenId: "ou_mom" });
+    const repository = {
+      listDue: vi.fn(() => [due]),
+      markSuccess: vi.fn(),
+      markFailure: vi.fn(),
+    } as unknown as CronJobRepository;
+    const send = vi.fn(async () => undefined);
+    const now = () => new Date("2026-05-05T09:00:00.000Z");
+
+    const scheduler = createCronJobScheduler({ repository, generateMessage: async () => "记得带水杯", sendTextToChat: send, now });
+    await scheduler.runDueNow();
+
+    expect(send).toHaveBeenCalledWith("chat-a", "记得带水杯", {
+      mentions: [{ openId: "ou_mom", name: "妈妈" }],
+    });
   });
 
   it("records failure and continues other jobs", async () => {

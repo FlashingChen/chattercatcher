@@ -9,6 +9,7 @@ import { QaLogRepository } from "../rag/qa-logs.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
 import type { ChatMessage, ChatModel, ChatTool, EvidenceBlock } from "../rag/types.js";
 import { FeishuMemberRepository, formatFeishuMemberPrompt } from "./members.js";
+import type { FeishuMemberResolver } from "./members.js";
 import type { MessageSender } from "./sender.js";
 import type { FeishuReceiveMessageEvent } from "./normalize.js";
 
@@ -19,6 +20,7 @@ export interface FeishuQuestionHandlerOptions {
   model: ChatModel;
   sender: MessageSender;
   memberRepository?: FeishuMemberRepository;
+  memberResolver?: Pick<FeishuMemberResolver, "resolveUniqueName">;
   thinkingEmojiType?: string;
 }
 
@@ -256,7 +258,15 @@ export function getFeishuQuestionDecision(
 }
 
 export class FeishuQuestionHandler {
-  constructor(private readonly options: FeishuQuestionHandlerOptions) {}
+  private memberResolver?: Pick<FeishuMemberResolver, "resolveUniqueName">;
+
+  constructor(private readonly options: FeishuQuestionHandlerOptions) {
+    this.memberResolver = options.memberResolver;
+  }
+
+  setMemberResolver(memberResolver: Pick<FeishuMemberResolver, "resolveUniqueName">): void {
+    this.memberResolver = memberResolver;
+  }
 
   private async sendResponse(chatId: string, messageId: string | undefined, text: string): Promise<void> {
     if (messageId && this.options.sender.replyTextToMessage) {
@@ -316,6 +326,7 @@ export class FeishuQuestionHandler {
           repository: new CronJobRepository(this.options.database),
           chatId: decision.chatId,
           createdByOpenId: payload.event?.sender?.sender_id?.open_id,
+          memberResolver: this.memberResolver,
         });
         const allTools: FeishuExecutableTool[] = [...tools, ...cronTools];
         const memberRepository = this.options.memberRepository ?? new FeishuMemberRepository(this.options.database);

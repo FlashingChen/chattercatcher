@@ -45,6 +45,30 @@ describe("generateCronJobMessage", () => {
     ).resolves.toBe("昨天群里确认端午活动改到 6 月 30 日。");
   });
 
+  it("injects member mapping into cron generation prompts", async () => {
+    const captured: ChatMessage[][] = [];
+    const model: ChatModel = {
+      async completeWithTools(messages) {
+        captured.push(messages);
+        return { content: "定时消息", toolCalls: [] };
+      },
+      async complete() {
+        return "定时消息";
+      },
+    };
+
+    await generateCronJobMessage({
+      prompt: "提醒妈妈带水杯",
+      model,
+      tools: [],
+      now: new Date("2026-05-05T09:00:00.000Z"),
+      memberPrompt: "当前群聊成员 ID 与群昵称映射：\nou_mom = 妈妈",
+    });
+
+    expect(captured[0]?.[0]?.content).toContain("当前群聊成员 ID 与群昵称映射：\nou_mom = 妈妈");
+    expect(captured[0]?.[0]?.content).toContain("生成消息时遇到上述 ID 时优先使用对应群昵称");
+  });
+
   it("throws when the model cannot call tools", async () => {
     const model: ChatModel = {
       async complete() {

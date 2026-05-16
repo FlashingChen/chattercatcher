@@ -53,6 +53,17 @@ describe("FeishuQuestionHandler cron tools", () => {
         sent.push(text);
       },
     };
+    const resolveUniqueName = vi.fn(async (chatId: string, userName: string) => {
+      expect(chatId).toBe("chat-a");
+      expect(userName).toBe("妈妈");
+      return {
+        chatId,
+        openId: "ou_mom",
+        userId: "u_mom",
+        userName,
+        updatedAt: "2026-05-16T00:00:00.000Z",
+      };
+    });
     const model = createToolLoopModel([
       async (_messages, tools) => {
         expect(tools.map((tool) => tool.name)).toEqual(
@@ -64,7 +75,7 @@ describe("FeishuQuestionHandler cron tools", () => {
             {
               id: "call-1",
               name: "create_cron_job",
-              input: { schedule: "0 9 * * *", prompt: "总结昨天群聊" },
+              input: { schedule: "0 9 * * *", prompt: "总结昨天群聊", mentionTargetName: "妈妈" },
             },
           ],
         };
@@ -79,7 +90,7 @@ describe("FeishuQuestionHandler cron tools", () => {
     ]);
 
     try {
-      const handler = new FeishuQuestionHandler({ config, secrets, database, model, sender });
+      const handler = new FeishuQuestionHandler({ config, secrets, database, model, sender, memberResolver: { resolveUniqueName } });
       await handler.handle({
         event: {
           sender: {
@@ -107,6 +118,9 @@ describe("FeishuQuestionHandler cron tools", () => {
         createdByOpenId: "user-a",
         schedule: "0 9 * * *",
         prompt: "总结昨天群聊",
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
       });
       expect(sent).toContain("定时任务操作完成。");
     } finally {

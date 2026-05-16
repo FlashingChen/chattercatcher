@@ -1,3 +1,4 @@
+import type { SendTextOptions } from "../feishu/sender.js";
 import type { CronJobRecord, CronJobRepository } from "./jobs.js";
 
 export interface CronJobScheduler {
@@ -9,7 +10,7 @@ export interface CronJobScheduler {
 interface CreateCronJobSchedulerOptions {
   repository: Pick<CronJobRepository, "listDue" | "markSuccess" | "markFailure">;
   generateMessage: (job: CronJobRecord, now: Date) => Promise<string>;
-  sendTextToChat: (chatId: string, text: string) => Promise<void>;
+  sendTextToChat: (chatId: string, text: string, options?: SendTextOptions) => Promise<void>;
   sendImageToChat?: (chatId: string, imageFileName: string) => Promise<void>;
   now?: () => Date;
   setIntervalFn?: typeof setInterval;
@@ -37,7 +38,14 @@ export function createCronJobScheduler(options: CreateCronJobSchedulerOptions): 
       for (const job of jobs) {
         try {
           const text = await options.generateMessage(job, startedAt);
-          await options.sendTextToChat(job.chatId, text);
+          const sendOptions = job.mentionOpenId && job.mentionTargetName
+            ? { mentions: [{ openId: job.mentionOpenId, name: job.mentionTargetName }] }
+            : undefined;
+          if (sendOptions) {
+            await options.sendTextToChat(job.chatId, text, sendOptions);
+          } else {
+            await options.sendTextToChat(job.chatId, text);
+          }
           if (job.imageFileName) {
             if (!options.sendImageToChat) {
               throw new Error("当前定时任务运行环境不支持发送图片。");

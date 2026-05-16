@@ -19,7 +19,7 @@ import type { FeishuReceiveMessageEvent } from "./normalize.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { MultimodalModel } from "../multimodal/types.js";
 import { ImageMultimodalWorker } from "../multimodal/worker.js";
-import { createFeishuChatMembersClient, FeishuMemberRepository, FeishuMemberResolver } from "./members.js";
+import { createFeishuChatMembersClient, FeishuMemberRepository, FeishuMemberResolver, formatFeishuMemberPrompt } from "./members.js";
 import { getFeishuQuestionDecision, isFeishuMessageAddressedToBot } from "./question.js";
 import type { FeishuQuestionHandler } from "./question.js";
 import { FeishuResourceDownloader } from "./resource-downloader.js";
@@ -237,6 +237,7 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
       domain: mapDomain(options.config.feishu.domain),
     }) as Parameters<typeof createFeishuChatMembersClient>[0]),
   });
+  options.questionHandler?.setMemberResolver?.(memberResolver);
 
   const eventDispatcher = createFeishuEventDispatcher({
     config: options.config,
@@ -270,7 +271,7 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
     options.cronJobProcessor
       ? createCronJobScheduler({
           repository: new CronJobRepository(options.cronJobProcessor.database),
-          sendTextToChat: (chatId, text) => options.cronJobProcessor!.sender.sendTextToChat(chatId, text),
+          sendTextToChat: (chatId, text, sendOptions) => options.cronJobProcessor!.sender.sendTextToChat(chatId, text, sendOptions),
           sendImageToChat: options.cronJobProcessor.sender.sendImageToChat
             ? (chatId, imageFileName) => options.cronJobProcessor!.sender.sendImageToChat!(
                 chatId,
@@ -286,7 +287,16 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
               scope: { platform: "feishu", platformChatId: job.chatId },
             });
             try {
-              return await generateCronJobMessage({ prompt: job.prompt, model: options.cronJobProcessor!.model, tools, now });
+              const memberPrompt = formatFeishuMemberPrompt(
+                new FeishuMemberRepository(options.cronJobProcessor!.database).listByChat(job.chatId),
+              );
+              return await generateCronJobMessage({
+                prompt: job.prompt,
+                model: options.cronJobProcessor!.model,
+                tools,
+                now,
+                memberPrompt,
+              });
             } finally {
               close();
             }
