@@ -190,6 +190,18 @@ export function migrateDatabase(database: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS cron_jobs_chat_status_idx ON cron_jobs(chat_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS feishu_chat_members (
+      chat_id TEXT NOT NULL,
+      open_id TEXT NOT NULL,
+      user_id TEXT,
+      user_name TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (chat_id, open_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS feishu_chat_members_chat_name_idx
+    ON feishu_chat_members(chat_id, user_name);
   `);
 
   const cronJobColumns = database.prepare("PRAGMA table_info(cron_jobs)").all() as Array<{ name: string }>;
