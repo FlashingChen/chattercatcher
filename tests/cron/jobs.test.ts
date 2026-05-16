@@ -164,6 +164,37 @@ describe("CronJobRepository", () => {
     }
   });
 
+  it("persists cron mention targets", () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const repository = new CronJobRepository(database, { now: () => new Date(2026, 4, 5, 8, 58, 0) });
+      const created = repository.create({
+        chatId: "chat-a",
+        schedule: "0 9 * * *",
+        prompt: "提醒妈妈带水杯",
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+
+      expect(repository.get(created.id)).toMatchObject({
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+      expect(repository.listDue(new Date(2026, 4, 5, 9, 0, 0))[0]).toMatchObject({
+        mentionTargetName: "妈妈",
+        mentionOpenId: "ou_mom",
+        mentionUserId: "u_mom",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("creates Feishu member mapping and cron mention columns without rewriting messages", () => {
     const config = createDefaultConfig();
     config.storage.dataDir = testDir;

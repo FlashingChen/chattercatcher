@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "../../src/config/schema.js";
 import { CronJobRepository } from "../../src/cron/jobs.js";
 import { createCronJobTools } from "../../src/cron/tools.js";
@@ -44,15 +44,48 @@ describe("createCronJobTools", () => {
   it("creates, lists, and deletes jobs in the current chat", async () => {
     const { database, repository } = createRepository();
     try {
-      const tools = createCronJobTools({ repository, chatId: "chat-a", createdByOpenId: "user-a" });
+      const resolveUniqueName = vi.fn(async (chatId: string, userName: string) => {
+        expect(chatId).toBe("chat-a");
+        expect(userName).toBe("妈妈");
+        return {
+          chatId,
+          openId: "ou_mom",
+          userId: "u_mom",
+          userName,
+          updatedAt: "2026-05-16T00:00:00.000Z",
+        };
+      });
+      const tools = createCronJobTools({
+        repository,
+        chatId: "chat-a",
+        createdByOpenId: "user-a",
+        memberResolver: { resolveUniqueName },
+      });
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
-      const created = JSON.parse(await byName.get("create_cron_job")!.execute({ schedule: "0 9 * * *", prompt: "总结昨天群聊", imageFileName: "order-code.jpg" }));
-      expect(created).toMatchObject({ ok: true, job: { chatId: "chat-a", createdByOpenId: "user-a", schedule: "0 9 * * *", prompt: "总结昨天群聊", imageFileName: "order-code.jpg" } });
+      const created = JSON.parse(await byName.get("create_cron_job")!.execute({
+        schedule: "0 9 * * *",
+        prompt: "提醒妈妈带水杯",
+        imageFileName: "order-code.jpg",
+        mentionTargetName: "妈妈",
+      }));
+      expect(created).toMatchObject({
+        ok: true,
+        job: {
+          chatId: "chat-a",
+          createdByOpenId: "user-a",
+          schedule: "0 9 * * *",
+          prompt: "提醒妈妈带水杯",
+          imageFileName: "order-code.jpg",
+          mentionTargetName: "妈妈",
+          mentionOpenId: "ou_mom",
+          mentionUserId: "u_mom",
+        },
+      });
 
       const list = JSON.parse(await byName.get("list_cron_jobs")!.execute({}));
       expect(list.jobs).toHaveLength(1);
-      expect(list.jobs[0]).toMatchObject({ id: created.job.id, chatId: "chat-a", imageFileName: "order-code.jpg" });
+      expect(list.jobs[0]).toMatchObject({ id: created.job.id, chatId: "chat-a", imageFileName: "order-code.jpg", mentionTargetName: "妈妈" });
 
       const deleted = JSON.parse(await byName.get("delete_cron_job")!.execute({ id: created.job.id }));
       expect(deleted).toMatchObject({ ok: true, id: created.job.id });
