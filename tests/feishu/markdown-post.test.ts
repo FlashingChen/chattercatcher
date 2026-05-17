@@ -8,7 +8,7 @@ describe("buildFeishuPostContent", () => {
         zh_cn: {
           title: "",
           content: [
-            [{ tag: "text", text: "标题", style: ["bold"] }],
+            [{ tag: "text", text: "标题" }],
             [{ tag: "text", text: "第一段\n第二段" }],
           ],
         },
@@ -52,12 +52,7 @@ describe("buildFeishuPostContent", () => {
         zh_cn: {
           title: "",
           content: [
-            [
-              { tag: "text", text: "请看 " },
-              { tag: "a", text: "文档", href: "https://example.com" },
-              { tag: "text", text: " 和 " },
-              { tag: "text", text: "重点", style: ["bold"] },
-            ],
+            [{ tag: "text", text: "请看 文档 https://example.com 和 重点" }],
           ],
         },
       },
@@ -70,11 +65,7 @@ describe("buildFeishuPostContent", () => {
         zh_cn: {
           title: "",
           content: [
-            [
-              { tag: "text", text: "参考 " },
-              { tag: "a", text: "条目", href: "https://example.com/a_(b)" },
-              { tag: "text", text: "。" },
-            ],
+            [{ tag: "text", text: "参考 条目 https://example.com/a_(b)。" }],
           ],
         },
       },
@@ -98,11 +89,7 @@ describe("buildFeishuPostContent", () => {
         zh_cn: {
           title: "",
           content: [
-            [
-              { tag: "at", user_id: "ou_mom", user_name: "妈妈" },
-              { tag: "text", text: " " },
-              { tag: "a", text: "文档", href: "https://example.com" },
-            ],
+            [{ tag: "text", text: "@妈妈 文档 https://example.com" }],
           ],
         },
       },
@@ -115,10 +102,7 @@ describe("buildFeishuPostContent", () => {
         zh_cn: {
           title: "",
           content: [
-            [
-              { tag: "at", user_id: "ou_mom", user_name: "妈妈" },
-              { tag: "text", text: " 记得带水杯" },
-            ],
+            [{ tag: "text", text: "@妈妈 记得带水杯" }],
           ],
         },
       },

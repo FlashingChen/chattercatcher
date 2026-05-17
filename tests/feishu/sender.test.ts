@@ -28,11 +28,8 @@ describe("FeishuMessageSender", () => {
               zh_cn: {
                 title: "",
                 content: [
-                  [{ tag: "text", text: "回答", style: ["bold"] }],
-                  [
-                    { tag: "text", text: "请看 " },
-                    { tag: "text", text: "重点", style: ["bold"] },
-                  ],
+                  [{ tag: "text", text: "回答" }],
+                  [{ tag: "text", text: "请看 重点" }],
                 ],
               },
             },
@@ -73,10 +70,7 @@ describe("FeishuMessageSender", () => {
               zh_cn: {
                 title: "",
                 content: [
-                  [
-                    { tag: "at", user_id: "ou_mom", user_name: "妈妈" },
-                    { tag: "text", text: " 记得带水杯" },
-                  ],
+                  [{ tag: "text", text: "@妈妈 记得带水杯" }],
                 ],
               },
             },
@@ -120,10 +114,7 @@ describe("FeishuMessageSender", () => {
               zh_cn: {
                 title: "",
                 content: [
-                  [
-                    { tag: "at", user_id: "ou_mom", user_name: "妈妈" },
-                    { tag: "text", text: " 回答", style: ["bold"] },
-                  ],
+                  [{ tag: "text", text: "@妈妈 回答" }],
                 ],
               },
             },
@@ -225,7 +216,7 @@ describe("FeishuMessageSender", () => {
             post: {
               zh_cn: {
                 title: "",
-                content: [[{ tag: "text", text: "回答", style: ["bold"] }]],
+                content: [[{ tag: "text", text: "回答" }]],
               },
             },
           }),
@@ -267,7 +258,7 @@ describe("FeishuMessageSender", () => {
             post: {
               zh_cn: {
                 title: "",
-                content: [[{ tag: "text", text: "回答", style: ["bold"] }]],
+                content: [[{ tag: "text", text: "回答" }]],
               },
             },
           }),

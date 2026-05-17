@@ -10,22 +10,9 @@ export interface SendTextOptions {
 interface FeishuPostTextElement {
   tag: "text";
   text: string;
-  style?: string[];
 }
 
-interface FeishuPostLinkElement {
-  tag: "a";
-  text: string;
-  href: string;
-}
-
-interface FeishuPostAtElement {
-  tag: "at";
-  user_id: string;
-  user_name: string;
-}
-
-type FeishuPostElement = FeishuPostTextElement | FeishuPostLinkElement | FeishuPostAtElement;
+type FeishuPostElement = FeishuPostTextElement;
 
 export interface FeishuPostContent {
   post: {
@@ -63,8 +50,8 @@ function findMarkdownLinkEnd(text: string, start: number): number {
   return -1;
 }
 
-function parseInline(text: string): FeishuPostElement[] {
-  const elements: FeishuPostElement[] = [];
+function stripInlineMarkdown(text: string): string {
+  let output = "";
   let index = 0;
 
   while (index < text.length) {
@@ -75,13 +62,11 @@ function parseInline(text: string): FeishuPostElement[] {
     const next = candidates.length ? Math.min(...candidates) : -1;
 
     if (next < 0) {
-      elements.push({ tag: "text", text: text.slice(index) });
+      output += text.slice(index);
       break;
     }
 
-    if (next > index) {
-      elements.push({ tag: "text", text: text.slice(index, next) });
-    }
+    output += text.slice(index, next);
 
     if (next === linkStart) {
       const labelEnd = text.indexOf("](", next);
@@ -90,12 +75,12 @@ function parseInline(text: string): FeishuPostElement[] {
         const hrefEnd = findMarkdownLinkEnd(text, hrefStart);
         const href = hrefEnd >= 0 ? text.slice(hrefStart, hrefEnd) : "";
         if (hrefEnd >= 0 && /^https?:\/\/\S+$/.test(href)) {
-          elements.push({ tag: "a", text: text.slice(next + 1, labelEnd), href });
+          output += `${text.slice(next + 1, labelEnd)} ${href}`;
           index = hrefEnd + 1;
           continue;
         }
       }
-      elements.push({ tag: "text", text: text[next] });
+      output += text[next];
       index = next + 1;
       continue;
     }
@@ -103,17 +88,20 @@ function parseInline(text: string): FeishuPostElement[] {
     const marker = next === boldStarStart ? "**" : "__";
     const close = text.indexOf(marker, next + marker.length);
     if (close > next + marker.length) {
-      elements.push({ tag: "text", text: text.slice(next + marker.length, close), style: ["bold"] });
+      output += text.slice(next + marker.length, close);
       index = close + marker.length;
       continue;
     }
 
-    elements.push({ tag: "text", text: marker });
+    output += marker;
     index = next + marker.length;
   }
 
-  const compacted = elements.filter((element) => element.tag !== "text" || element.text.length > 0);
-  return compacted.length ? compacted : [{ tag: "text", text: " " }];
+  return output;
+}
+
+function parseInline(text: string): FeishuPostElement[] {
+  return [{ tag: "text", text: stripInlineMarkdown(text) || " " }];
 }
 
 function pushParagraph(content: FeishuPostElement[][], lines: string[]): void {
@@ -160,7 +148,7 @@ function parseMarkdownBlocks(markdown: string): FeishuPostElement[][] {
     const heading = line.match(/^#{1,6}\s+(.+)$/);
     if (heading) {
       pushParagraph(content, paragraph);
-      content.push([{ tag: "text", text: heading[1], style: ["bold"] }]);
+      content.push([{ tag: "text", text: stripInlineMarkdown(heading[1]) || " " }]);
       continue;
     }
 
@@ -194,17 +182,13 @@ export function buildFeishuPostContent(markdown: string, options?: SendTextOptio
   const mentions = options?.mentions ?? [];
 
   if (mentions.length) {
-    const mentionElements: FeishuPostElement[] = mentions.map((mention) => ({
-      tag: "at",
-      user_id: mention.openId,
-      user_name: mention.name,
-    }));
     const firstLine = content[0] ?? [];
     const firstText = firstLine[0];
+    const prefix = mentions.map((mention) => `@${mention.name}`).join(" ");
     if (firstText?.tag === "text") {
-      content[0] = [...mentionElements, { ...firstText, text: ` ${firstText.text}` }, ...firstLine.slice(1)];
+      content[0] = [{ tag: "text", text: `${prefix} ${firstText.text}` }, ...firstLine.slice(1)];
     } else {
-      content[0] = [...mentionElements, { tag: "text", text: " " }, ...firstLine];
+      content[0] = [{ tag: "text", text: `${prefix} ` }, ...firstLine];
     }
   }
 
