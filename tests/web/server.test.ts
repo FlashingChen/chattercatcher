@@ -97,8 +97,10 @@ describe("web server", () => {
       expect(statusJson.web).not.toHaveProperty("actionToken");
       const homePage = await app.inject({ method: "GET", url: "/" });
       expect(homePage.statusCode).toBe(200);
-      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(homePage.body)?.[1];
-      expect(webActionToken).toHaveLength(64);
+      const setCookie = homePage.headers["set-cookie"];
+      const webActionCookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+      expect(webActionCookie).toContain("chattercatcher_web_token=");
+      expect(homePage.body).not.toContain("chattercatcher_web_token=");
 
       const chats = await app.inject({ method: "GET", url: "/api/chats" });
       expect(chats.json().items.map((item: { name: string }) => item.name)).toContain("家庭群");
@@ -166,7 +168,7 @@ describe("web server", () => {
       const deleteResponse = await app.inject({
         method: "DELETE",
         url: `/api/cron-jobs/${targetJob.id}`,
-        headers: { "x-chattercatcher-web-token": webActionToken! },
+        headers: { cookie: webActionCookie! },
       });
       expect(deleteResponse.statusCode).toBe(200);
       expect(deleteResponse.json()).toMatchObject({ ok: true });
@@ -180,7 +182,7 @@ describe("web server", () => {
       const missingDelete = await app.inject({
         method: "DELETE",
         url: "/api/cron-jobs/missing-job",
-        headers: { "x-chattercatcher-web-token": webActionToken! },
+        headers: { cookie: webActionCookie! },
       });
       expect(missingDelete.statusCode).toBe(404);
       expect(missingDelete.json()).toMatchObject({ ok: false, message: "没有找到定时任务。" });
@@ -201,16 +203,16 @@ describe("web server", () => {
       expect(response.body).toContain("不堆叠全量上下文");
       expect(response.body).toContain("会话记忆");
       expect(response.body).toContain("问答日志");
-      expect(response.body).toContain('id="qa-logs" class="empty">正在读取...</div>');
+      expect(response.body).toContain('id="qa-logs-list"');
       expect(response.body).toContain("定时任务");
-      expect(response.body).toContain('id="cron-jobs" class="empty">正在读取...</div>');
+      expect(response.body).toContain('id="cron-jobs-list"');
       expect(response.body).toContain("/api/cron-jobs");
       expect(response.body).toContain("data-delete-cron-job");
       expect(response.body).toContain("正在删除定时任务");
-      expect(response.body).toContain("x-chattercatcher-web-token");
+      expect(response.body).not.toContain("x-chattercatcher-web-token");
       expect(response.body).toContain("当前运行版本");
       expect(response.body).toContain("加载失败");
-      expect(response.body).toContain("chattercatcher process episodes");
+      expect(response.body).toContain("chattercatcher files add");
       expect(response.body).toContain("立即处理");
       expect(response.body).toContain("setInterval");
       expect(() => new Function(response.body.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? "")).not.toThrow();
@@ -229,11 +231,12 @@ describe("web server", () => {
     const app = createWebApp(config);
     try {
       const homePage = await app.inject({ method: "GET", url: "/" });
-      const webActionToken = /let webActionToken = "([a-f0-9]+)";/.exec(homePage.body)?.[1];
+      const setCookie = homePage.headers["set-cookie"];
+      const webActionCookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
       const response = await app.inject({
         method: "POST",
         url: "/api/process/messages",
-        headers: { "x-chattercatcher-web-token": webActionToken! },
+        headers: { cookie: webActionCookie! },
       });
 
       expect(response.statusCode).toBe(200);
