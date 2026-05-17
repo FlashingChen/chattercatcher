@@ -146,6 +146,37 @@ describe("FeishuMessageSender", () => {
     ]);
   });
 
+  it("falls back to plain text when Feishu reports invalid rich text content", async () => {
+    const calls: unknown[] = [];
+    const sender = new FeishuMessageSender({
+      im: {
+        v1: {
+          message: {
+            async create(payload) {
+              calls.push(payload);
+              if ((payload as { data: { msg_type: string } }).data.msg_type === "post") {
+                const error = new Error("Request failed with status code 400");
+                (error as unknown as { response: { data: { code: number; msg: string } } }).response = {
+                  data: {
+                    code: 230001,
+                    msg: "Your request contains an invalid request parameter, ext=invalid message content.",
+                  },
+                };
+                throw error;
+              }
+            },
+          },
+        },
+      },
+    });
+
+    await sender.sendTextToChat("oc_family", "**回答**");
+
+    expect(calls).toHaveLength(2);
+    expect((calls[0] as { data: { msg_type: string } }).data.msg_type).toBe("post");
+    expect((calls[1] as { data: { msg_type: string } }).data.msg_type).toBe("text");
+  });
+
   it("does not fall back when rich text sending fails for non-format errors", async () => {
     const calls: unknown[] = [];
     const sender = new FeishuMessageSender({
