@@ -24,14 +24,8 @@ describe("FeishuMessageSender", () => {
           receive_id: "oc_family",
           msg_type: "post",
           content: JSON.stringify({
-            post: {
-              zh_cn: {
-                title: "",
-                content: [
-                  [{ tag: "text", text: "回答" }],
-                  [{ tag: "text", text: "请看 重点" }],
-                ],
-              },
+            zh_cn: {
+              content: [[{ tag: "md", text: "# 回答\n\n请看 **重点**" }]],
             },
           }),
         },
@@ -66,13 +60,8 @@ describe("FeishuMessageSender", () => {
           receive_id: "oc_family",
           msg_type: "post",
           content: JSON.stringify({
-            post: {
-              zh_cn: {
-                title: "",
-                content: [
-                  [{ tag: "text", text: "@妈妈 记得带水杯" }],
-                ],
-              },
+            zh_cn: {
+              content: [[{ tag: "md", text: '<at user_id="ou_mom">妈妈</at> 记得带水杯' }]],
             },
           }),
         },
@@ -110,13 +99,8 @@ describe("FeishuMessageSender", () => {
           receive_id: "oc_family",
           msg_type: "post",
           content: JSON.stringify({
-            post: {
-              zh_cn: {
-                title: "",
-                content: [
-                  [{ tag: "text", text: "@妈妈 回答" }],
-                ],
-              },
+            zh_cn: {
+              content: [[{ tag: "md", text: '<at user_id="ou_mom">妈妈</at> **回答**' }]],
             },
           }),
         },
@@ -154,6 +138,38 @@ describe("FeishuMessageSender", () => {
                   },
                 };
                 throw error;
+              }
+            },
+          },
+        },
+      },
+    });
+
+    await sender.sendTextToChat("oc_family", "**回答**");
+
+    expect(calls).toHaveLength(2);
+    expect((calls[0] as { data: { msg_type: string } }).data.msg_type).toBe("post");
+    expect((calls[1] as { data: { msg_type: string } }).data.msg_type).toBe("text");
+  });
+
+  it("falls back to plain text when Feishu SDK throws nested array errors", async () => {
+    const calls: unknown[] = [];
+    const sender = new FeishuMessageSender({
+      im: {
+        v1: {
+          message: {
+            async create(payload) {
+              calls.push(payload);
+              if ((payload as { data: { msg_type: string } }).data.msg_type === "post") {
+                throw [
+                  [
+                    { message: "Request failed with status code 400", response: {} },
+                    {
+                      code: 230001,
+                      msg: "Your request contains an invalid request parameter, ext=invalid message content.",
+                    },
+                  ],
+                ];
               }
             },
           },
@@ -213,11 +229,8 @@ describe("FeishuMessageSender", () => {
         data: {
           msg_type: "post",
           content: JSON.stringify({
-            post: {
-              zh_cn: {
-                title: "",
-                content: [[{ tag: "text", text: "回答" }]],
-              },
+            zh_cn: {
+              content: [[{ tag: "md", text: "# 回答" }]],
             },
           }),
         },
@@ -255,11 +268,8 @@ describe("FeishuMessageSender", () => {
         data: {
           msg_type: "post",
           content: JSON.stringify({
-            post: {
-              zh_cn: {
-                title: "",
-                content: [[{ tag: "text", text: "回答" }]],
-              },
+            zh_cn: {
+              content: [[{ tag: "md", text: "**回答**" }]],
             },
           }),
         },

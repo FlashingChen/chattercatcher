@@ -102,14 +102,40 @@ function extractImageKey(response: unknown): string {
 }
 
 function collectErrorFields(error: unknown): unknown[] {
-  const fields: unknown[] = [error];
-  const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
-  fields.push(value.code, value.errorCode, value.msg, value.message);
+  const fields: unknown[] = [];
+  const seen = new Set<unknown>();
 
-  const response = value.response && typeof value.response === "object" ? value.response as Record<string, unknown> : {};
-  const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : {};
-  fields.push(data.code, data.errorCode, data.msg, data.message);
+  function visit(value: unknown): void {
+    if (value === undefined || value === null || seen.has(value)) {
+      return;
+    }
 
+    fields.push(value);
+
+    if (typeof value !== "object") {
+      return;
+    }
+
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item);
+      }
+      return;
+    }
+
+    const record = value as Record<string, unknown>;
+    visit(record.code);
+    visit(record.errorCode);
+    visit(record.msg);
+    visit(record.message);
+    visit(record.error);
+    visit(record.response);
+    visit(record.data);
+  }
+
+  visit(error);
   return fields;
 }
 
