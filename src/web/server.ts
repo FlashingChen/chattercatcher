@@ -513,12 +513,15 @@ function buildHtml(): string {
     let allFileJobs = [];
     let allCronJobs = [];
     let allQaLogs = [];
+    let selectedQaLogId = null;
     let statusData = null;
 
     function fmt(value) { return value == null || value === "" ? "-" : String(value); }
     function escapeHtml(value) {
       return fmt(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
     }
+    function renderJson(value) { return '<pre style="white-space:pre-wrap;overflow:auto;max-height:320px;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>'; }
+    function renderTextBlock(value) { return '<pre style="white-space:pre-wrap;overflow:auto;max-height:320px;">' + escapeHtml(value || "") + '</pre>'; }
     function isOpaqueId(value) { return /^(ou|oc|om|cli|on|un|uid)_?[a-z0-9]+/i.test(fmt(value)); }
     function formatDateTime(value) {
       var date = new Date(value);
@@ -791,15 +794,70 @@ function buildHtml(): string {
       for (var i = 0; i < allQaLogs.length; i++) {
         var item = allQaLogs[i];
         var citationCount = Array.isArray(item.citations) ? item.citations.length : 0;
-        var statusClass = item.status === 'success' ? 'tag-success' : 'tag-warning';
+        var statusClass = item.status === 'answered' ? 'tag-success' : 'tag-warning';
         html += '<div class="qa-card"><div class="message-meta" style="margin-bottom:var(--space-sm);">' +
           '<span>' + escapeHtml(formatDateTime(item.createdAt)) + '</span>' +
           '<span class="tag ' + statusClass + '">' + escapeHtml(item.status) + '</span>' +
-          '<span>' + citationCount + ' \u6761\u5f15\u7528</span></div>' +
+          '<span>' + citationCount + ' \u6761\u5f15\u7528</span>' +
+          '<span class="tag ' + (item.hasTrace ? 'tag-info' : 'tag-warning') + '">' + (item.hasTrace ? '\u6709 trace' : '\u65e0 trace') + '</span></div>' +
           '<div class="qa-question">' + escapeHtml(item.question) + '</div>' +
-          '<div class="qa-answer">' + escapeHtml(item.answer) + '</div></div>';
+          '<div class="qa-answer">' + escapeHtml(item.answer) + '</div>' +
+          '<button class="btn btn-sm" style="margin-top:var(--space-sm);" data-view-qa-log="' + escapeHtml(item.id) + '">\u67e5\u770b\u8be6\u60c5</button>' +
+          '<div id="qa-detail-' + escapeHtml(item.id) + '" style="margin-top:var(--space-md);"></div></div>';
       }
       el.innerHTML = html;
+    }
+
+    async function showQaLogDetail(id) {
+      selectedQaLogId = id;
+      var container = document.getElementById("qa-detail-" + id);
+      if (!container) return;
+      container.innerHTML = '<div class="empty-state">\u6b63\u5728\u52a0\u8f7d\u95ee\u7b54\u8be6\u60c5...</div>';
+      try {
+        var item = await fetchJson("/api/qa-logs/" + encodeURIComponent(id));
+        renderQaLogDetail(item);
+      } catch (error) {
+        container.innerHTML = '<div class="empty-state">\u8be6\u60c5\u52a0\u8f7d\u5931\u8d25\uff1a' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+      }
+    }
+
+    function renderQaLogDetail(item) {
+      var container = document.getElementById("qa-detail-" + item.id);
+      if (!container) return;
+      var trace = item.trace || {};
+      var html = '<div class="content-panel" style="margin-top:var(--space-sm);background:rgba(255,255,255,0.03);">';
+      html += '<h3 style="font-size:15px;margin-bottom:var(--space-sm);">\u95ee\u7b54\u8be6\u60c5</h3>';
+      html += '<div class="message-meta" style="margin-bottom:var(--space-sm);"><span>\u72b6\u6001\uff1a' + escapeHtml(item.status) + '</span><span>\u521b\u5efa\uff1a' + escapeHtml(formatDateTime(item.createdAt)) + '</span><span>\u8017\u65f6\uff1a' + escapeHtml(trace.durationMs == null ? '-' : trace.durationMs + 'ms') + '</span></div>';
+      if (item.error) html += '<div style="color:var(--danger);margin-bottom:var(--space-sm);">\u9519\u8bef\uff1a' + escapeHtml(item.error) + '</div>';
+      html += '<div class="qa-question">' + escapeHtml(item.question) + '</div>';
+      html += '<div class="qa-answer" style="margin-bottom:var(--space-md);">' + escapeHtml(item.answer) + '</div>';
+      if (!item.hasTrace) {
+        html += '<div class="empty-state">\u8fd9\u6761\u95ee\u7b54\u6ca1\u6709 trace\uff0c\u53ef\u80fd\u6765\u81ea\u65e7\u7248\u672c\u8bb0\u5f55\u3002</div></div>';
+        container.innerHTML = html;
+        return;
+      }
+      var turns = trace.modelTurns || [];
+      html += '<h4 style="margin:var(--space-md) 0 var(--space-sm);">Reasoning</h4>';
+      if (turns.length === 0) html += '<div class="empty-state">\u65e0 reasoningContent</div>';
+      for (var i = 0; i < turns.length; i++) {
+        html += '<div style="margin-bottom:var(--space-sm);"><div class="message-meta"><span>\u6a21\u578b\u8f6e\u6b21 ' + escapeHtml(turns[i].index) + '</span><span>' + escapeHtml(formatDateTime(turns[i].createdAt)) + '</span></div>' + renderTextBlock(turns[i].reasoningContent || '\u65e0 reasoningContent') + '</div>';
+      }
+      html += '<h4 style="margin:var(--space-md) 0 var(--space-sm);">\u6a21\u578b\u8f6e\u6b21\u4e0e\u5de5\u5177\u8c03\u7528</h4>';
+      for (var j = 0; j < turns.length; j++) {
+        html += '<div style="margin-bottom:var(--space-sm);"><div class="message-meta"><span>\u8f6e\u6b21 ' + escapeHtml(turns[j].index) + '</span></div>' + renderTextBlock(turns[j].content || '') + renderJson(turns[j].toolCalls || []) + '</div>';
+      }
+      html += '<h4 style="margin:var(--space-md) 0 var(--space-sm);">\u5de5\u5177\u7ed3\u679c</h4>';
+      var toolResults = trace.toolResults || [];
+      if (toolResults.length === 0) html += '<div class="empty-state">\u6ca1\u6709\u5de5\u5177\u7ed3\u679c\u3002</div>';
+      for (var k = 0; k < toolResults.length; k++) {
+        html += '<div style="margin-bottom:var(--space-sm);"><div class="message-meta"><span>' + escapeHtml(toolResults[k].name) + '</span><span>' + escapeHtml(toolResults[k].toolCallId) + '</span><span>' + escapeHtml(formatDateTime(toolResults[k].createdAt)) + '</span></div>' + renderJson(toolResults[k].input) + (toolResults[k].error ? '<div style="color:var(--danger);">' + escapeHtml(toolResults[k].error) + '</div>' : renderTextBlock(toolResults[k].content || '')) + '</div>';
+      }
+      html += '<h4 style="margin:var(--space-md) 0 var(--space-sm);">\u5f15\u7528\u4e0e\u68c0\u7d22</h4>' + renderJson({ citations: item.citations || [], retrievalDebug: item.retrievalDebug || {} });
+      html += '<h4 style="margin:var(--space-md) 0 var(--space-sm);">Fallback</h4>';
+      var fallbacks = trace.fallbacks || [];
+      html += fallbacks.length === 0 ? '<div class="empty-state">\u6ca1\u6709 fallback\u3002</div>' : renderJson(fallbacks);
+      html += '</div>';
+      container.innerHTML = html;
     }
 
     function renderSettings(status) {
@@ -836,7 +894,10 @@ function buildHtml(): string {
       if (currentView === "episodes") renderEpisodesView();
       if (currentView === "files") renderFilesView();
       if (currentView === "tasks") renderTasksView();
-      if (currentView === "qa-logs") renderQaLogsView();
+      if (currentView === "qa-logs") {
+        renderQaLogsView();
+        if (selectedQaLogId) void showQaLogDetail(selectedQaLogId);
+      }
     }
 
     async function processNow() {
@@ -858,6 +919,11 @@ function buildHtml(): string {
     document.addEventListener("click", async function(event) {
       var target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      var qaLogId = target.dataset.viewQaLog;
+      if (qaLogId) {
+        void showQaLogDetail(qaLogId);
+        return;
+      }
       var id = target.dataset.deleteCronJob;
       if (!id) return;
       target.disabled = true;
@@ -909,6 +975,11 @@ function parseCookies(header: string | string[] | undefined): Record<string, str
 
 function isAuthorizedWebAction(request: { headers: Record<string, string | string[] | undefined> }, token: string): boolean {
   return parseCookies(request.headers.cookie).chattercatcher_web_token === token;
+}
+
+function toQaLogListItem(log: ReturnType<QaLogRepository["listRecent"]>[number]) {
+  const { trace: _trace, ...item } = log;
+  return item;
 }
 
 export function createWebApp(config: AppConfig, options: WebAppOptions = {}): FastifyInstance {
@@ -997,8 +1068,18 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
   app.get("/api/qa-logs", async (request) => {
     const limit = parseLimit((request.query as { limit?: string }).limit, 20, 100);
     return {
-      items: qaLogs.listRecent(limit),
+      items: qaLogs.listRecent(limit).map(toQaLogListItem),
     };
+  });
+
+  app.get("/api/qa-logs/:id", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const log = qaLogs.getById(id);
+    if (!log) {
+      reply.code(404);
+      return { ok: false, message: "没有找到问答日志。" };
+    }
+    return log;
   });
 
   app.get("/api/cron-jobs", async (request) => {

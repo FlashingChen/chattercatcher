@@ -71,6 +71,7 @@ describe("FeishuQuestionHandler cron tools", () => {
         );
         return {
           content: "我来创建定时任务。",
+          reasoningContent: "用户要求创建每天 9 点的群提醒，需要调用 create_cron_job。",
           toolCalls: [
             {
               id: "call-1",
@@ -109,9 +110,24 @@ describe("FeishuQuestionHandler cron tools", () => {
       });
 
       const jobs = new CronJobRepository(database).listByChat("chat-a");
-      const qaLogs = database.prepare("SELECT answer, status, error FROM qa_logs ORDER BY created_at DESC LIMIT 1").all() as Array<{ answer: string; status: string; error: string | null }>;
+      const qaLogs = database.prepare("SELECT answer, status, error, trace_json FROM qa_logs ORDER BY created_at DESC LIMIT 1").all() as Array<{ answer: string; status: string; error: string | null; trace_json: string }>;
       expect(qaLogs).toHaveLength(1);
       expect(qaLogs[0]).toMatchObject({ status: "answered", error: null, answer: "定时任务操作完成。" });
+      const trace = JSON.parse(qaLogs[0].trace_json) as {
+        finalAnswer: string;
+        status: string;
+        modelTurns: Array<{ content: string; reasoningContent?: string; toolCalls: Array<{ id: string; name: string; input: unknown }> }>;
+        toolResults: Array<{ toolCallId: string; name: string; content?: string; error?: string }>;
+      };
+      expect(trace).toMatchObject({ status: "answered", finalAnswer: "定时任务操作完成。" });
+      expect(trace.modelTurns).toHaveLength(2);
+      expect(trace.modelTurns[0]).toMatchObject({
+        content: "我来创建定时任务。",
+        reasoningContent: "用户要求创建每天 9 点的群提醒，需要调用 create_cron_job。",
+      });
+      expect(trace.modelTurns[0].toolCalls[0]).toMatchObject({ id: "call-1", name: "create_cron_job" });
+      expect(trace.toolResults[0]).toMatchObject({ toolCallId: "call-1", name: "create_cron_job" });
+      expect(trace.toolResults[0].content).toContain('"ok":true');
       expect(jobs).toHaveLength(1);
       expect(jobs[0]).toMatchObject({
         chatId: "chat-a",

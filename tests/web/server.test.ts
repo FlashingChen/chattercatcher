@@ -28,6 +28,7 @@ describe("web server", () => {
     config.storage.dataDir = path.join(testDir, "data");
     const filePath = path.join(testDir, "activity.md");
     await fs.writeFile(filePath, "端午活动改到 2026/6/30。", "utf8");
+    let qaLogId = "";
 
     const database = openDatabase(config);
     try {
@@ -50,16 +51,43 @@ describe("web server", () => {
         windowMs: 10 * 60 * 1000,
         summarize: async () => "端午活动改到 2026/6/30，这是来自家庭群的会话记忆。",
       });
-      await new QaLogRepository(database).create({
+      const qaLog = new QaLogRepository(database).create({
         chatId: "family",
         questionMessageId: "question-1",
         question: "端午活动改到哪天？",
         answer: "端午活动改到 2026/6/30。",
         citations: [{ sourceId: "message-1", snippet: "端午活动改到 2026/6/30。" }],
         retrievalDebug: { keywordHits: 1, vectorHits: 0 },
+        trace: {
+          startedAt: "2026-04-25T08:10:59.000Z",
+          completedAt: "2026-04-25T08:11:00.000Z",
+          durationMs: 1000,
+          status: "answered",
+          finalAnswer: "端午活动改到 2026/6/30。",
+          modelTurns: [
+            {
+              index: 0,
+              content: "我来查证据。",
+              reasoningContent: "需要搜索端午活动。",
+              toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "端午活动" } }],
+              createdAt: "2026-04-25T08:10:59.100Z",
+            },
+          ],
+          toolResults: [
+            {
+              toolCallId: "call-1",
+              name: "search_messages",
+              input: { query: "端午活动" },
+              content: "端午活动改到 2026/6/30。",
+              createdAt: "2026-04-25T08:10:59.200Z",
+            },
+          ],
+          fallbacks: [],
+        },
         status: "answered",
         createdAt: "2026-04-25T08:11:00.000Z",
       });
+      qaLogId = qaLog.id;
       new CronJobRepository(database, { now: () => new Date(2026, 4, 5, 8, 58, 0) }).create({
         chatId: "family",
         createdByOpenId: "mom",
@@ -129,12 +157,42 @@ describe("web server", () => {
             question: "端午活动改到哪天？",
             answer: "端午活动改到 2026/6/30。",
             status: "answered",
+            hasTrace: true,
             citations: [{ sourceId: "message-1", snippet: "端午活动改到 2026/6/30。" }],
             retrievalDebug: { keywordHits: 1, vectorHits: 0 },
             createdAt: "2026-04-25T08:11:00.000Z",
           },
         ],
       });
+      expect(qaLogs.json().items[0]).not.toHaveProperty("trace");
+
+      const qaLogDetail = await app.inject({ method: "GET", url: `/api/qa-logs/${qaLogId}` });
+      expect(qaLogDetail.statusCode).toBe(200);
+      expect(qaLogDetail.json()).toMatchObject({
+        id: qaLogId,
+        question: "端午活动改到哪天？",
+        hasTrace: true,
+        trace: {
+          finalAnswer: "端午活动改到 2026/6/30。",
+          modelTurns: [
+            {
+              content: "我来查证据。",
+              reasoningContent: "需要搜索端午活动。",
+            },
+          ],
+          toolResults: [
+            {
+              toolCallId: "call-1",
+              name: "search_messages",
+              content: "端午活动改到 2026/6/30。",
+            },
+          ],
+        },
+      });
+
+      const missingQaLogDetail = await app.inject({ method: "GET", url: "/api/qa-logs/missing" });
+      expect(missingQaLogDetail.statusCode).toBe(404);
+      expect(missingQaLogDetail.json()).toMatchObject({ ok: false, message: "没有找到问答日志。" });
 
       const files = await app.inject({ method: "GET", url: "/api/files" });
       expect(files.json().items[0]).toMatchObject({
@@ -204,6 +262,11 @@ describe("web server", () => {
       expect(response.body).toContain("会话记忆");
       expect(response.body).toContain("问答日志");
       expect(response.body).toContain('id="qa-logs-list"');
+      expect(response.body).toContain("data-view-qa-log");
+      expect(response.body).toContain("/api/qa-logs/");
+      expect(response.body).toContain("Reasoning");
+      expect(response.body).toContain("toolResults");
+      expect(response.body).not.toContain("innerHTML = item");
       expect(response.body).toContain("定时任务");
       expect(response.body).toContain('id="cron-jobs-list"');
       expect(response.body).toContain("/api/cron-jobs");

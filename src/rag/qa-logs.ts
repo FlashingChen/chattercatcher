@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import type { SqliteDatabase } from "../db/database.js";
+import type { QaTrace } from "./qa-trace.js";
+import { hasQaTrace } from "./qa-trace.js";
 
 export interface QaLogRecord {
   id: string;
@@ -9,6 +11,8 @@ export interface QaLogRecord {
   answer: string;
   citations: unknown[];
   retrievalDebug: Record<string, unknown>;
+  trace: QaTrace;
+  hasTrace: boolean;
   status: "answered" | "failed";
   error: string | null;
   createdAt: string;
@@ -21,6 +25,7 @@ export interface CreateQaLogInput {
   answer: string;
   citations: unknown[];
   retrievalDebug: Record<string, unknown>;
+  trace?: QaTrace;
   status: "answered" | "failed";
   error?: string;
   createdAt: string;
@@ -34,6 +39,7 @@ interface QaLogRow {
   answer: string;
   citations_json: string;
   retrieval_debug_json: string;
+  trace_json: string;
   status: "answered" | "failed";
   error: string | null;
   created_at: string;
@@ -43,7 +49,13 @@ function clampLimit(limit: number): number {
   return Math.max(1, Math.min(200, Math.trunc(limit)));
 }
 
+function parseTrace(value: string): QaTrace {
+  const parsed = JSON.parse(value) as QaTrace;
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
 function mapQaLogRow(row: QaLogRow): QaLogRecord {
+  const trace = parseTrace(row.trace_json);
   return {
     id: row.id,
     chatId: row.chat_id,
@@ -52,6 +64,8 @@ function mapQaLogRow(row: QaLogRow): QaLogRecord {
     answer: row.answer,
     citations: JSON.parse(row.citations_json) as unknown[],
     retrievalDebug: JSON.parse(row.retrieval_debug_json) as Record<string, unknown>,
+    trace,
+    hasTrace: hasQaTrace(trace),
     status: row.status,
     error: row.error,
     createdAt: row.created_at,
@@ -62,6 +76,7 @@ export class QaLogRepository {
   constructor(private readonly database: SqliteDatabase) {}
 
   create(input: CreateQaLogInput): QaLogRecord {
+    const trace = input.trace ?? {};
     const record: QaLogRecord = {
       id: `qa_${crypto.randomUUID()}`,
       chatId: input.chatId ?? null,
@@ -70,6 +85,8 @@ export class QaLogRepository {
       answer: input.answer,
       citations: input.citations,
       retrievalDebug: input.retrievalDebug,
+      trace,
+      hasTrace: hasQaTrace(trace),
       status: input.status,
       error: input.error ?? null,
       createdAt: input.createdAt,
@@ -86,6 +103,7 @@ export class QaLogRepository {
             answer,
             citations_json,
             retrieval_debug_json,
+            trace_json,
             status,
             error,
             created_at
@@ -98,6 +116,7 @@ export class QaLogRepository {
             @answer,
             @citationsJson,
             @retrievalDebugJson,
+            @traceJson,
             @status,
             @error,
             @createdAt
@@ -112,6 +131,7 @@ export class QaLogRepository {
         answer: record.answer,
         citationsJson: JSON.stringify(record.citations),
         retrievalDebugJson: JSON.stringify(record.retrievalDebug),
+        traceJson: JSON.stringify(record.trace),
         status: record.status,
         error: record.error,
         createdAt: record.createdAt,
@@ -132,6 +152,7 @@ export class QaLogRepository {
             answer,
             citations_json,
             retrieval_debug_json,
+            trace_json,
             status,
             error,
             created_at
@@ -157,6 +178,7 @@ export class QaLogRepository {
             answer,
             citations_json,
             retrieval_debug_json,
+            trace_json,
             status,
             error,
             created_at
@@ -169,6 +191,31 @@ export class QaLogRepository {
       .all(chatId, clampLimit(limit)) as QaLogRow[];
 
     return rows.map(mapQaLogRow);
+  }
+
+  getById(id: string): QaLogRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT
+            id,
+            chat_id,
+            question_message_id,
+            question,
+            answer,
+            citations_json,
+            retrieval_debug_json,
+            trace_json,
+            status,
+            error,
+            created_at
+          FROM qa_logs
+          WHERE id = ?
+        `,
+      )
+      .get(id) as QaLogRow | undefined;
+
+    return row ? mapQaLogRow(row) : null;
   }
 
   getCount(): number {

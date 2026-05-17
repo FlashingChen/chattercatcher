@@ -6,6 +6,7 @@ import type { SqliteDatabase } from "../db/database.js";
 import { MessageRepository } from "../messages/repository.js";
 import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
+import type { QaTrace } from "../rag/qa-trace.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
 import type { ChatMessage, ChatModel, ChatTool, EvidenceBlock } from "../rag/types.js";
 import { formatBeijingTimeForPrompt } from "../time/beijing.js";
@@ -98,6 +99,25 @@ function toToolErrorContent(message: string): string {
   return JSON.stringify({ ok: false, error: message });
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+interface FeishuToolLoopResult {
+  answer: string;
+  trace: QaTrace;
+}
+
+function finalizeTrace(trace: QaTrace, status: "answered" | "failed", finalAnswer: string, startedAtMs: number): QaTrace {
+  return {
+    ...trace,
+    completedAt: nowIso(),
+    durationMs: Date.now() - startedAtMs,
+    status,
+    finalAnswer,
+  };
+}
+
 async function executeFeishuTool(tool: FeishuExecutableTool, input: unknown): Promise<string> {
   const result = await tool.execute(input);
   if (isEvidenceBlockArray(result)) {
@@ -115,10 +135,18 @@ async function runFeishuToolLoop(input: {
   maxToolCalls?: number;
   memberPrompt?: string;
   conversationContext?: string;
-}): Promise<string> {
+}): Promise<FeishuToolLoopResult> {
   if (!input.model.completeWithTools) {
     throw new Error("当前 LLM 客户端不支持工具调用。");
   }
+
+  const startedAtMs = Date.now();
+  const trace: QaTrace = {
+    startedAt: new Date(startedAtMs).toISOString(),
+    modelTurns: [],
+    toolResults: [],
+    fallbacks: [],
+  };
 
   const maxModelTurns = input.maxModelTurns ?? DEFAULT_MAX_MODEL_TURNS;
   const maxToolCalls = input.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
@@ -146,23 +174,40 @@ async function runFeishuToolLoop(input: {
       toolCalls: assistantResult.toolCalls,
       reasoningContent: assistantResult.reasoningContent,
     });
+    trace.modelTurns?.push({
+      index: turn,
+      content: assistantResult.content,
+      reasoningContent: assistantResult.reasoningContent,
+      toolCalls: assistantResult.toolCalls,
+      createdAt: nowIso(),
+    });
 
     if (assistantResult.toolCalls.length === 0) {
       if (hasRawToolCallMarkup) {
+        trace.fallbacks?.push({ type: "raw_tool_markup", message: "模型输出了原始工具调用标记，转入最终补救回答。", createdAt: nowIso() });
         break;
       }
-      return assistantResult.content || FEISHU_TOOL_LOOP_FALLBACK;
+      const answer = assistantResult.content || FEISHU_TOOL_LOOP_FALLBACK;
+      return { answer, trace: finalizeTrace(trace, "answered", answer, startedAtMs) };
     }
 
     for (const toolCall of assistantResult.toolCalls) {
       if (toolCallsUsed >= maxToolCalls) {
-        return FEISHU_TOOL_LOOP_LIMIT_REACHED;
+        trace.fallbacks?.push({ type: "tool_limit", message: FEISHU_TOOL_LOOP_LIMIT_REACHED, createdAt: nowIso() });
+        return { answer: FEISHU_TOOL_LOOP_LIMIT_REACHED, trace: finalizeTrace(trace, "failed", FEISHU_TOOL_LOOP_LIMIT_REACHED, startedAtMs) };
       }
 
       toolCallsUsed += 1;
       const tool = toolsByName.get(toolCall.name);
 
       if (!tool) {
+        trace.toolResults?.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+          error: `未知工具：${toolCall.name}`,
+          createdAt: nowIso(),
+        });
         messages.push({
           role: "tool",
           toolCallId: toolCall.id,
@@ -173,6 +218,13 @@ async function runFeishuToolLoop(input: {
 
       try {
         const result = await executeFeishuTool(tool, toolCall.input);
+        trace.toolResults?.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+          content: result,
+          createdAt: nowIso(),
+        });
         messages.push({
           role: "tool",
           toolCallId: toolCall.id,
@@ -180,6 +232,13 @@ async function runFeishuToolLoop(input: {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        trace.toolResults?.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+          error: message,
+          createdAt: nowIso(),
+        });
         messages.push({
           role: "tool",
           toolCallId: toolCall.id,
@@ -195,9 +254,13 @@ async function runFeishuToolLoop(input: {
       ...messages,
       { role: "system", content: "请基于以上所有工具返回的信息，直接给出最终答案。不要再调用工具。" },
     ]);
-    return salvageAnswer || "抱歉，回答生成失败，请稍后重试。";
+    const answer = salvageAnswer || "抱歉，回答生成失败，请稍后重试。";
+    trace.fallbacks?.push({ type: "salvage_completion", message: "工具循环结束后使用无工具补救回答。", createdAt: nowIso() });
+    return { answer, trace: finalizeTrace(trace, "answered", answer, startedAtMs) };
   } catch {
-    return "抱歉，回答生成失败，请稍后重试。";
+    const answer = "抱歉，回答生成失败，请稍后重试。";
+    trace.fallbacks?.push({ type: "answer_generation_failed", message: answer, createdAt: nowIso() });
+    return { answer, trace: finalizeTrace(trace, "failed", answer, startedAtMs) };
   }
 }
 
@@ -347,7 +410,7 @@ export class FeishuQuestionHandler {
         const memberRepository = this.options.memberRepository ?? new FeishuMemberRepository(this.options.database);
         const memberPrompt = formatFeishuMemberPrompt(memberRepository.listByChat(decision.chatId));
         const conversationContext = formatConversationContext(qaLogs.listRecentByChat(decision.chatId, 6));
-        const answer = await runFeishuToolLoop({
+        const result = await runFeishuToolLoop({
           question: decision.question,
           now,
           tools: allTools,
@@ -359,27 +422,38 @@ export class FeishuQuestionHandler {
           chatId: decision.chatId,
           questionMessageId,
           question: decision.question,
-          answer,
+          answer: result.answer,
           citations: [],
           retrievalDebug: {},
+          trace: result.trace,
           status: "answered",
           createdAt: new Date().toISOString(),
         });
-        await this.sendResponse(decision.chatId, questionMessageId, answer);
+        await this.sendResponse(decision.chatId, questionMessageId, result.answer);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const failedAt = new Date().toISOString();
+        const failedAnswer = `暂时无法回答：${message}`;
         qaLogs.create({
           chatId: decision.chatId,
           questionMessageId,
           question: decision.question,
-          answer: `暂时无法回答：${message}`,
+          answer: failedAnswer,
           citations: [],
           retrievalDebug: {},
+          trace: {
+            startedAt: now.toISOString(),
+            completedAt: failedAt,
+            durationMs: Math.max(0, Date.parse(failedAt) - now.getTime()),
+            status: "failed",
+            finalAnswer: failedAnswer,
+            fallbacks: [{ type: "answer_generation_failed", message, createdAt: failedAt }],
+          },
           status: "failed",
           error: message,
-          createdAt: new Date().toISOString(),
+          createdAt: failedAt,
         });
-        await this.sendResponse(decision.chatId, questionMessageId, `暂时无法回答：${message}`);
+        await this.sendResponse(decision.chatId, questionMessageId, failedAnswer);
       }
       return decision;
     } finally {

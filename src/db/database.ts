@@ -119,6 +119,7 @@ export function migrateDatabase(database: SqliteDatabase): void {
       answer TEXT NOT NULL,
       citations_json TEXT NOT NULL,
       retrieval_debug_json TEXT NOT NULL,
+      trace_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL CHECK(status IN ('answered','failed')),
       error TEXT,
       created_at TEXT NOT NULL
@@ -215,4 +216,9 @@ export function migrateDatabase(database: SqliteDatabase): void {
   ensureCronJobColumn("mention_target_name", "mention_target_name TEXT");
   ensureCronJobColumn("mention_open_id", "mention_open_id TEXT");
   ensureCronJobColumn("mention_user_id", "mention_user_id TEXT");
+
+  const qaLogColumns = database.prepare("PRAGMA table_info(qa_logs)").all() as Array<{ name: string }>;
+  if (!qaLogColumns.some((column) => column.name === "trace_json")) {
+    database.prepare("ALTER TABLE qa_logs ADD COLUMN trace_json TEXT NOT NULL DEFAULT '{}'").run();
+  }
 }

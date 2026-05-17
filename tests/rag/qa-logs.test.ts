@@ -58,6 +58,8 @@ describe("QaLogRepository", () => {
       });
       expect(older.id).toMatch(/^qa_/);
       expect(newer.id).toMatch(/^qa_/);
+      expect(recent[0].trace).toEqual({});
+      expect(recent[0].hasTrace).toBe(false);
     } finally {
       database.close();
     }
@@ -83,6 +85,65 @@ describe("QaLogRepository", () => {
 
       expect(repository.listRecent(0)).toHaveLength(1);
       expect(repository.listRecent(999)).toHaveLength(200);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("persists trace data and gets logs by id", () => {
+    const database = new Database(":memory:");
+    migrateDatabase(database);
+
+    try {
+      const repository = new QaLogRepository(database);
+      const record = repository.create({
+        chatId: "family",
+        questionMessageId: "question-1",
+        question: "今天要带什么？",
+        answer: "带水杯。",
+        citations: [],
+        retrievalDebug: {},
+        status: "answered",
+        createdAt: "2026-05-17T10:00:00.000Z",
+        trace: {
+          startedAt: "2026-05-17T10:00:00.000Z",
+          completedAt: "2026-05-17T10:00:01.000Z",
+          durationMs: 1000,
+          status: "answered",
+          finalAnswer: "带水杯。",
+          modelTurns: [
+            {
+              index: 0,
+              content: "我来查一下。",
+              reasoningContent: "需要先搜索本地消息。",
+              toolCalls: [{ id: "call-1", name: "search_messages", input: { query: "水杯" } }],
+              createdAt: "2026-05-17T10:00:00.100Z",
+            },
+          ],
+          toolResults: [
+            {
+              toolCallId: "call-1",
+              name: "search_messages",
+              input: { query: "水杯" },
+              content: "[证据1] 妈妈: 记得带水杯",
+              createdAt: "2026-05-17T10:00:00.200Z",
+            },
+          ],
+          fallbacks: [],
+        },
+      });
+
+      expect(record.hasTrace).toBe(true);
+      expect(record.trace.modelTurns?.[0]?.reasoningContent).toBe("需要先搜索本地消息。");
+
+      const listed = repository.listRecent(10);
+      expect(listed[0]).toMatchObject({ id: record.id, hasTrace: true });
+      expect(listed[0].trace.toolResults?.[0]).toMatchObject({ name: "search_messages" });
+
+      const detail = repository.getById(record.id);
+      expect(detail).toMatchObject({ id: record.id, hasTrace: true });
+      expect(detail?.trace.finalAnswer).toBe("带水杯。");
+      expect(repository.getById("missing")).toBeNull();
     } finally {
       database.close();
     }
