@@ -101,12 +101,26 @@ function extractImageKey(response: unknown): string {
   throw new Error("飞书图片上传响应缺少 image_key。");
 }
 
-function isRichTextCompatibilityError(error: unknown): boolean {
+function collectErrorFields(error: unknown): unknown[] {
+  const fields: unknown[] = [error];
   const value = error && typeof error === "object" ? error as Record<string, unknown> : {};
-  const code = value.code ?? value.errorCode;
-  const message = error instanceof Error ? error.message : String(error);
+  fields.push(value.code, value.errorCode, value.msg, value.message);
 
-  return code === 230001 || /post|msg_type|content|unsupported|invalid/i.test(message);
+  const response = value.response && typeof value.response === "object" ? value.response as Record<string, unknown> : {};
+  const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : {};
+  fields.push(data.code, data.errorCode, data.msg, data.message);
+
+  return fields;
+}
+
+function isRichTextCompatibilityError(error: unknown): boolean {
+  return collectErrorFields(error).some((field) => {
+    if (field === 230001) return true;
+    if (typeof field === "string") {
+      return /post|msg_type|content|unsupported|invalid/i.test(field);
+    }
+    return false;
+  });
 }
 
 async function sendWithTextFallback(input: {
