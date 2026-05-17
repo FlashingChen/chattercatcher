@@ -1,3 +1,4 @@
+import { formatBeijingTimeForPrompt } from "../time/beijing.js";
 import type { ChatModel } from "../rag/types.js";
 import type { EpisodeWindow } from "./repository.js";
 import { sanitizeEpisodeSummary } from "./sanitizer.js";
@@ -15,7 +16,7 @@ export async function summarizeEpisodeWindow(window: EpisodeWindow, model: ChatM
     },
     {
       role: "user",
-      content: `当前时间：${now.toISOString()}\n群聊：${window.chatName}\n时间：${window.startedAt} - ${window.endedAt}\n\n聊天记录：\n${transcript}\n\n请输出一段简洁的会话记忆摘要。`,
+      content: `当前时间：${formatBeijingTimeForPrompt(now)}\n群聊：${window.chatName}\n时间：${window.startedAt} - ${window.endedAt}\n\n聊天记录：\n${transcript}\n\n请输出一段简洁的会话记忆摘要。`,
     },
   ]);
 

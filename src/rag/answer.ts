@@ -1,3 +1,4 @@
+import { formatBeijingTimeForPrompt } from "../time/beijing.js";
 import type { ChatMessage, ChatModel, Citation, EvidenceBlock, GroundedAnswer } from "./types.js";
 
 export interface BuildEvidencePromptOptions {
@@ -92,7 +93,7 @@ export function buildEvidencePrompt(
       },
       {
         role: "user",
-        content: `当前时间：${now.toISOString()}\n问题：${question}\n\n证据处理规则：\n1. 先判断证据是否足以回答问题。\n2. 同一事项出现多个版本时，默认较新的明确消息优先。\n3. 回答只引用实际支撑结论的证据。\n\n检索证据：\n${evidenceText}`,
+        content: `当前时间：${formatBeijingTimeForPrompt(now)}\n问题：${question}\n\n证据处理规则：\n1. 先判断证据是否足以回答问题。\n2. 同一事项出现多个版本时，默认较新的明确消息优先。\n3. 回答只引用实际支撑结论的证据。\n\n检索证据：\n${evidenceText}`,
       },
     ],
   };

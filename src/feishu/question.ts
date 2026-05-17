@@ -8,6 +8,7 @@ import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
 import type { ChatMessage, ChatModel, ChatTool, EvidenceBlock } from "../rag/types.js";
+import { formatBeijingTimeForPrompt } from "../time/beijing.js";
 import { FeishuMemberRepository, formatFeishuMemberPrompt } from "./members.js";
 import type { FeishuMemberResolver } from "./members.js";
 import type { MessageSender } from "./sender.js";
@@ -131,7 +132,7 @@ async function runFeishuToolLoop(input: {
   const systemPrompt = systemPromptParts.join("\n\n");
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
-    { role: "user", content: `当前时间：${input.now.toISOString()}\n问题：${input.question}` },
+    { role: "user", content: `当前时间：${formatBeijingTimeForPrompt(input.now)}\n问题：${input.question}` },
   ];
   const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
   let toolCallsUsed = 0;

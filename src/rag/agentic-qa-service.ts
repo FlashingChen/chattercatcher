@@ -1,3 +1,4 @@
+import { formatBeijingTimeForPrompt } from "../time/beijing.js";
 import { generateGroundedAnswer } from "./answer.js";
 import type { RagSearchTool } from "./search-tools.js";
 import type { ChatMessage, ChatModel, EvidenceBlock, GroundedAnswer } from "./types.js";
@@ -66,7 +67,7 @@ export async function askWithAgenticRag(input: AskWithAgenticRagInput): Promise<
   const maxEvidence = input.maxEvidence ?? DEFAULT_MAX_EVIDENCE;
   const messages: ChatMessage[] = [
     { role: "system", content: AGENTIC_SYSTEM_PROMPT },
-    { role: "user", content: `当前时间：${now.toISOString()}\n问题：${input.question}` },
+    { role: "user", content: `当前时间：${formatBeijingTimeForPrompt(now)}\n问题：${input.question}` },
   ];
   const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
   let evidence: EvidenceBlock[] = [];

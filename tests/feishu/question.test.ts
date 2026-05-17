@@ -169,7 +169,7 @@ describe("FeishuQuestionHandler", () => {
     const completeWithTools = createCompleteWithToolsMock([
       async (messages) => {
         const joinedPrompt = messages.map((message) => message.content ?? "").join("\n");
-        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
         expect(joinedPrompt).toContain("相对时间表述");
         expect(joinedPrompt).toContain("证据中每条消息的时间戳推导为具体日期");
 

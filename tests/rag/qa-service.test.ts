@@ -54,7 +54,7 @@ describe("askWithRag", () => {
         const joinedPrompt = messages.map((message) => message.content).join("\n\n");
         expect(joinedPrompt).toContain("检索证据");
         expect(joinedPrompt).toContain("[S1]");
-        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
         return "端午活动目前是 2026/6/30。[S1]";
       },
     };

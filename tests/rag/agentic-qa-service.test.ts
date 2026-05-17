@@ -62,7 +62,7 @@ describe("askWithAgenticRag", () => {
     const completeWithTools = createCompleteWithToolsMock([
       async (messages) => {
         const joinedMessages = messages.map((message) => message.content).join("\n\n");
-        expect(joinedMessages).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedMessages).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
         expect(joinedMessages).toContain("相对时间表述");
         return {
           content: "我先查一下。",
@@ -81,7 +81,7 @@ describe("askWithAgenticRag", () => {
         const joinedPrompt = messages.map((message) => message.content).join("\n\n");
         expect(joinedPrompt).toContain("检索证据");
         expect(joinedPrompt).toContain("[S1]");
-        expect(joinedPrompt).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(joinedPrompt).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
         return "端午活动目前是 2026/6/30。[S1]";
       },
     };

@@ -1,5 +1,6 @@
 import type { RagSearchTool } from "../rag/search-tools.js";
 import type { ChatMessage, ChatModel, EvidenceBlock } from "../rag/types.js";
+import { formatBeijingTimeForPrompt } from "../time/beijing.js";
 
 interface GenerateCronJobMessageInput {
   prompt: string;
@@ -36,7 +37,7 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
     : SYSTEM_PROMPT;
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
-    { role: "user", content: `当前时间：${input.now.toISOString()}\n任务提示词：${input.prompt}` },
+    { role: "user", content: `当前时间：${formatBeijingTimeForPrompt(input.now)}\n任务提示词：${input.prompt}` },
   ];
   const toolsByName = new Map(input.tools.map((tool) => [tool.name, tool]));
   const evidence: EvidenceBlock[] = [];
@@ -58,7 +59,7 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: `当前时间：${input.now.toISOString()}\n任务提示词：${input.prompt}\n\n证据：\n${evidenceToText(evidence)}`,
+            content: `当前时间：${formatBeijingTimeForPrompt(input.now)}\n任务提示词：${input.prompt}\n\n证据：\n${evidenceToText(evidence)}`,
           },
         ]);
       }
@@ -85,7 +86,7 @@ export async function generateCronJobMessage(input: GenerateCronJobMessageInput)
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `当前时间：${input.now.toISOString()}\n任务提示词：${input.prompt}\n\n证据：\n${evidenceToText(evidence)}`,
+      content: `当前时间：${formatBeijingTimeForPrompt(input.now)}\n任务提示词：${input.prompt}\n\n证据：\n${evidenceToText(evidence)}`,
     },
   ]);
 }

@@ -39,7 +39,7 @@ describe("RAG answer boundary", () => {
     expect(prompt.messages[0]?.content).toContain("证据互相矛盾");
     expect(prompt.messages[0]?.content).toContain("相对时间表述");
     expect(prompt.messages[0]?.content).toContain("证据中每条消息标注了发送时间");
-    expect(prompt.messages[1]?.content).toContain("当前时间：2026-05-10T08:00:00.000Z");
+    expect(prompt.messages[1]?.content).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
     expect(prompt.messages[1]?.content).toContain("检索证据");
     expect(prompt.messages[1]?.content).toContain("[S1]");
     expect(prompt.messages[1]?.content).toContain("端午活动改到 2026/6/30");
@@ -88,7 +88,7 @@ describe("RAG answer boundary", () => {
       async complete(messages) {
         expect(messages.map((message) => message.content).join("\n")).toContain("[S1]");
         expect(messages.map((message) => message.content).join("\n")).toContain(
-          "当前时间：2026-05-10T08:00:00.000Z",
+          "当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）",
         );
         return "端午活动目前是 2026/6/30。[S1]";
       },

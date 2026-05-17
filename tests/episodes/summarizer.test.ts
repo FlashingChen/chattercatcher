@@ -35,7 +35,7 @@ describe("summarizeEpisodeWindow", () => {
         expect(messages[0]?.content).toContain("碎片化闲聊");
         expect(messages[0]?.content).toContain("相对时间表述");
         expect(messages[0]?.content).toContain("基于每条消息前的发送时间戳推导为具体日期");
-        expect(messages[1]?.content).toContain("当前时间：2026-05-10T08:00:00.000Z");
+        expect(messages[1]?.content).toContain("当前时间：2026-05-10T16:00:00+08:00（北京时间，UTC+8，Asia/Shanghai）");
         expect(messages[1]?.content).toContain("我要发一个 API key 出来");
         expect(messages[1]?.content).toContain("sk-live-abc123");
         return "用户先说明要发送一个 API key，随后发送 sk-live-abc123，因此 sk-live-abc123 是该 API key。";
