@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDefaultConfig } from "../../src/config/schema.js";
 import { openDatabase } from "../../src/db/database.js";
 import { MessageRepository } from "../../src/messages/repository.js";
+import { ProfileRepository } from "../../src/profiles/repository.js";
 import { MessageFtsRetriever } from "../../src/rag/message-retriever.js";
 
 let testDir: string;
@@ -145,6 +146,89 @@ describe("message repository", () => {
       expect(results).toHaveLength(1);
       expect(results[0]?.text).toContain("A 群");
       expect(results[0]?.text).not.toContain("B 群");
+    } finally {
+      database.close();
+    }
+  });
+
+  it("ingest and search carry personId and senderId", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const messages = new MessageRepository(database);
+      const profiles = new ProfileRepository(database);
+      const person = profiles.resolvePersonForSender({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        senderId: "ou_123",
+        senderName: "小王",
+        source: "message",
+        observedAt: "2026-05-29T00:00:00.000Z",
+      });
+      const messageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        chatName: "家庭群",
+        platformMessageId: "person-1",
+        senderId: "ou_123",
+        senderName: "小王",
+        personId: person.id,
+        messageType: "text",
+        text: "我是小王",
+        sentAt: "2026-05-29T00:00:00.000Z",
+      });
+
+      const results = messages.searchMessages("小王", 8, { scope: { personId: person.id } });
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        messageId,
+        senderId: "ou_123",
+        personId: person.id,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("image summary preserves source personId", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const messages = new MessageRepository(database);
+      const profiles = new ProfileRepository(database);
+      const person = profiles.resolvePersonForSender({
+        platform: "feishu",
+        platformChatId: "chat-1",
+        senderId: "alice",
+        senderName: "Alice",
+        source: "message",
+        observedAt: "2026-05-02T08:00:00.000Z",
+      });
+      const sourceMessageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-1",
+        chatName: "项目群",
+        platformMessageId: "image-message-person",
+        senderId: "alice",
+        senderName: "Alice",
+        personId: person.id,
+        messageType: "image",
+        text: "[图片] img_v2_456",
+        sentAt: "2026-05-02T08:00:00.000Z",
+      });
+
+      const derivedMessageId = messages.createImageSummaryMessage({
+        sourceMessageId,
+        imageKey: "img_v2_456",
+        summary: "图片里写着 Alice 本周值班。",
+        multimodalModel: "vision-model",
+        generatedAt: "2026-05-02T08:01:00.000Z",
+      });
+
+      const row = database.prepare("SELECT person_id AS personId FROM messages WHERE id = ?").get(derivedMessageId) as { personId: string | null };
+      expect(row.personId).toBe(person.id);
     } finally {
       database.close();
     }
