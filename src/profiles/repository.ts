@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 import type { SqliteDatabase } from "../db/database.js";
 import type {
   DreamStateRecord,
+  DreamMessageRecord,
+  DreamRunRecord,
+  DreamChatRecord,
   PersonRecord,
   ProfileEntryRecord,
   ProfileEvidenceRecord,
@@ -284,6 +287,78 @@ export class ProfileRepository {
       `,
       )
       .run(input.platform, input.platformChatId, input.lastMessageId ?? null, input.lastMessageSentAt ?? null, input.updatedAt);
+  }
+
+  listMessagesForDream(input: { platform: string; platformChatId: string; afterSentAt?: string; limit: number }): DreamMessageRecord[] {
+    const afterWhere = input.afterSentAt ? "AND m.sent_at > ?" : "";
+    const params = input.afterSentAt
+      ? [input.platform, input.platformChatId, input.afterSentAt, input.limit]
+      : [input.platform, input.platformChatId, input.limit];
+    return this.database
+      .prepare(
+        `
+        SELECT
+          m.id AS messageId,
+          m.person_id AS personId,
+          m.sender_name AS senderName,
+          m.sent_at AS sentAt,
+          m.text AS text
+        FROM messages m
+        JOIN chats c ON c.id = m.chat_id
+        WHERE m.platform = ?
+          AND c.platform_chat_id = ?
+          AND m.person_id IS NOT NULL
+          ${afterWhere}
+        ORDER BY m.sent_at ASC, m.created_at ASC
+        LIMIT ?
+      `,
+      )
+      .all(...params) as DreamMessageRecord[];
+  }
+
+  listChatsWithPendingDreamMessages(): DreamChatRecord[] {
+    return this.database
+      .prepare(
+        `
+        SELECT DISTINCT m.platform AS platform, c.platform_chat_id AS platformChatId
+        FROM messages m
+        JOIN chats c ON c.id = m.chat_id
+        LEFT JOIN profile_dream_state pds ON pds.platform = m.platform AND pds.platform_chat_id = c.platform_chat_id
+        WHERE m.person_id IS NOT NULL
+          AND (pds.last_message_sent_at IS NULL OR m.sent_at > pds.last_message_sent_at)
+        ORDER BY c.platform_chat_id ASC
+      `,
+      )
+      .all() as DreamChatRecord[];
+  }
+
+  recordDreamRun(input: Omit<DreamRunRecord, "id"> & { id?: string }): string {
+    const id = input.id ?? createId("profile_dream_run", [input.platform, input.platformChatId, input.startedAt, input.finishedAt]);
+    this.database
+      .prepare(
+        `
+        INSERT INTO profile_dream_runs (
+          id, platform, platform_chat_id, status, processed_message_count, generated_entry_count, error, started_at, finished_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run(
+        id,
+        input.platform,
+        input.platformChatId,
+        input.status,
+        input.processedMessageCount,
+        input.generatedEntryCount,
+        input.error ?? null,
+        input.startedAt,
+        input.finishedAt,
+      );
+    return id;
+  }
+
+  personExists(personId: string): boolean {
+    const row = this.database.prepare("SELECT 1 AS existsFlag FROM persons WHERE id = ? LIMIT 1").get(personId) as { existsFlag: number } | undefined;
+    return Boolean(row);
   }
 
   private getEvidence(entryId: string): ProfileEvidenceRecord[] {

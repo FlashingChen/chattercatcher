@@ -80,3 +80,28 @@ export interface DreamStateRecord {
   lastMessageSentAt?: string;
   updatedAt?: string;
 }
+
+export interface DreamMessageRecord {
+  messageId: string;
+  personId: string;
+  senderName: string;
+  sentAt: string;
+  text: string;
+}
+
+export interface DreamRunRecord {
+  id: string;
+  platform: string;
+  platformChatId: string;
+  status: "succeeded" | "failed" | "skipped";
+  processedMessageCount: number;
+  generatedEntryCount: number;
+  error?: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface DreamChatRecord {
+  platform: string;
+  platformChatId: string;
+}

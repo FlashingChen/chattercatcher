@@ -31,6 +31,7 @@ import { createMultimodalModel } from "./multimodal/openai-compatible.js";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
+import { ProfileDreamProcessor } from "./profiles/dream.js";
 import { ProfileRepository } from "./profiles/repository.js";
 import { indexMessageChunks } from "./rag/indexer.js";
 import { createHybridRetriever, hasEmbeddingConfig } from "./rag/factory.js";
@@ -610,6 +611,40 @@ processCommand
         model: createChatModel(config, secrets),
       });
       console.log(`会话记忆处理完成：episodes=${result.created}`);
+    } finally {
+      database.close();
+    }
+  });
+
+processCommand
+  .command("profiles")
+  .description("处理未总结消息并更新个人档案")
+  .option("--limit <number>", "每个群最多处理消息数", "100")
+  .action(async (options: { limit: string }) => {
+    const config = await loadConfig();
+    const secrets = await loadSecrets();
+    const database = openDatabase(config);
+    try {
+      const profiles = new ProfileRepository(database);
+      profiles.backfillMessagePersons({ limit: 10000 });
+      const processor = new ProfileDreamProcessor({ profiles, model: createChatModel(config, secrets) });
+      const chats = profiles.listChatsWithPendingDreamMessages();
+      let succeeded = 0;
+      let failed = 0;
+      let skipped = 0;
+      const limit = Number(options.limit);
+      for (const chat of chats) {
+        const result = await processor.processChat({
+          platform: chat.platform,
+          platformChatId: chat.platformChatId,
+          limit: Number.isFinite(limit) ? limit : 100,
+        });
+        if (result.status === "succeeded") succeeded += 1;
+        if (result.status === "failed") failed += 1;
+        if (result.status === "skipped") skipped += 1;
+        console.log(`${chat.platformChatId}: ${result.status}, messages=${result.processedMessageCount}, entries=${result.generatedEntryCount}${result.error ? `, error=${result.error}` : ""}`);
+      }
+      console.log(`个人档案处理完成：成功 ${succeeded}，失败 ${failed}，跳过 ${skipped}。`);
     } finally {
       database.close();
     }
