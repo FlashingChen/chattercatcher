@@ -10,6 +10,7 @@ import { FileJobRepository } from "../../src/files/jobs.js";
 import { MessageRepository } from "../../src/messages/repository.js";
 import { EpisodeRepository } from "../../src/episodes/repository.js";
 import { QaLogRepository } from "../../src/rag/qa-logs.js";
+import { ProfileRepository } from "../../src/profiles/repository.js";
 import { createWebApp } from "../../src/web/server.js";
 
 let testDir: string;
@@ -309,6 +310,167 @@ describe("web server", () => {
         vectors: 0,
       });
       expect(response.json().reason).toContain("Embedding 配置不完整");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("提供个人档案 API", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = path.join(testDir, "data");
+    const database = openDatabase(config);
+    let momPersonId = "";
+    let dadPersonId = "";
+    let momMessageId = "";
+    let dadMessageId = "";
+
+    try {
+      const repository = new MessageRepository(database);
+      const profiles = new ProfileRepository(database);
+
+      momMessageId = repository.ingest({
+        platform: "dev",
+        platformChatId: "family",
+        chatName: "家庭群",
+        platformMessageId: "profile-1",
+        senderId: "mom",
+        senderName: "老妈",
+        messageType: "text",
+        text: "爸爸的生日是 5 月 12 日。",
+        sentAt: "2026-04-20T10:00:00.000Z",
+      });
+
+      momPersonId = profiles.resolvePersonForSender({
+        platform: "dev",
+        platformChatId: "family",
+        senderId: "mom",
+        senderName: "老妈",
+        source: "message",
+        observedAt: "2026-04-20T10:00:00.000Z",
+      }).id;
+
+      dadMessageId = repository.ingest({
+        platform: "dev",
+        platformChatId: "family",
+        chatName: "家庭群",
+        platformMessageId: "profile-2",
+        senderId: "dad",
+        senderName: "老爸",
+        messageType: "text",
+        text: "我换工作了，在新公司做后端开发。",
+        sentAt: "2026-04-21T14:00:00.000Z",
+      });
+
+      dadPersonId = profiles.resolvePersonForSender({
+        platform: "dev",
+        platformChatId: "family",
+        senderId: "dad",
+        senderName: "老爸",
+        source: "message",
+        observedAt: "2026-04-21T14:00:00.000Z",
+      }).id;
+
+      profiles.upsertProfileEntry({
+        personId: momPersonId,
+        category: "家庭角色",
+        content: "妈妈",
+        entryType: "fact",
+        confidence: 0.9,
+        source: "dream",
+        evidence: [
+          { messageId: momMessageId, quote: "爸爸的生日是 5 月 12 日。", reason: "老妈发消息称爸爸生日" },
+        ],
+        observedAt: "2026-04-20T10:00:00.000Z",
+      });
+
+      profiles.upsertProfileEntry({
+        personId: dadPersonId,
+        category: "工作",
+        content: "后端开发工程师",
+        entryType: "inferred",
+        confidence: 0.7,
+        source: "dream",
+        evidence: [
+          { messageId: dadMessageId, quote: "我换工作了，在新公司做后端开发。", reason: "老爸自己说换工作了" },
+        ],
+        observedAt: "2026-04-21T14:00:00.000Z",
+      });
+
+      profiles.backfillMessagePersons({ limit: 100 });
+    } finally {
+      database.close();
+    }
+
+    const app = createWebApp(config, { version: "0.1.test" });
+    try {
+      const personsList = await app.inject({ method: "GET", url: "/api/persons" });
+      expect(personsList.statusCode).toBe(200);
+      expect(personsList.json().items).toHaveLength(2);
+      expect(personsList.json().items[0]).toMatchObject({
+        id: expect.any(String),
+        primaryName: expect.any(String),
+        profileEntryCount: expect.any(Number),
+        messageCount: expect.any(Number),
+      });
+
+      const momProfile = await app.inject({ method: "GET", url: `/api/persons/${momPersonId}/profile` });
+      expect(momProfile.statusCode).toBe(200);
+      expect(momProfile.json()).toMatchObject({
+        person: { id: momPersonId, primaryName: "老妈" },
+        identities: expect.any(Array),
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            category: "家庭角色",
+            content: "妈妈",
+            entryType: "fact",
+            evidence: expect.arrayContaining([
+              expect.objectContaining({ messageId: momMessageId, quote: "爸爸的生日是 5 月 12 日。" }),
+            ]),
+          }),
+        ]),
+      });
+      expect(momProfile.json().identities).toHaveLength(1);
+      expect(momProfile.json().identities[0]).toMatchObject({
+        platform: "dev",
+        platformChatId: "family",
+        externalUserId: "mom",
+        displayName: "老妈",
+      });
+
+      const dadProfile = await app.inject({ method: "GET", url: `/api/persons/${dadPersonId}/profile` });
+      expect(dadProfile.statusCode).toBe(200);
+      expect(dadProfile.json().entries[0]).toMatchObject({
+        category: "工作",
+        content: "后端开发工程师",
+        entryType: "inferred",
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ messageId: dadMessageId }),
+        ]),
+      });
+
+      const missingProfile = await app.inject({ method: "GET", url: "/api/persons/missing_person/profile" });
+      expect(missingProfile.statusCode).toBe(404);
+      expect(missingProfile.json()).toMatchObject({ ok: false, message: "没有找到该成员。" });
+
+      const momMessages = await app.inject({ method: "GET", url: `/api/persons/${momPersonId}/messages` });
+      expect(momMessages.statusCode).toBe(200);
+      expect(momMessages.json().items).toHaveLength(1);
+      expect(momMessages.json().items[0]).toMatchObject({
+        text: "爸爸的生日是 5 月 12 日。",
+        senderName: "老妈",
+      });
+
+      const dadMessages = await app.inject({ method: "GET", url: `/api/persons/${dadPersonId}/messages?limit=5` });
+      expect(dadMessages.statusCode).toBe(200);
+      expect(dadMessages.json().items).toHaveLength(1);
+      expect(dadMessages.json().items[0]).toMatchObject({
+        text: "我换工作了，在新公司做后端开发。",
+        senderName: "老爸",
+      });
+
+      const emptyMessages = await app.inject({ method: "GET", url: "/api/persons/missing_person/messages" });
+      expect(emptyMessages.statusCode).toBe(200);
+      expect(emptyMessages.json().items).toHaveLength(0);
     } finally {
       await app.close();
     }

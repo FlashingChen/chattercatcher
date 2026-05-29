@@ -10,6 +10,7 @@ import { getGatewayStatus } from "../gateway/index.js";
 import { MessageRepository } from "../messages/repository.js";
 import { processMessagesNow } from "../rag/manual-index.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
+import { ProfileRepository } from "../profiles/repository.js";
 
 function buildHtml(): string {
   return `<!doctype html>
@@ -351,6 +352,10 @@ function buildHtml(): string {
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span>问答日志</span>
       </button>
+      <button class="nav-item" data-view="persons">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>个人档案</span>
+      </button>
       <button class="nav-item" data-view="settings">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>设置</span>
@@ -381,6 +386,10 @@ function buildHtml(): string {
     <button class="mobile-nav-item" data-view="tasks">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
       <span>任务</span>
+    </button>
+    <button class="mobile-nav-item" data-view="persons">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>档案</span>
     </button>
     <button class="mobile-nav-item" data-view="settings">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -478,6 +487,18 @@ function buildHtml(): string {
       <div class="content-panel glass"><div id="qa-logs-list"></div></div>
     </div>
 
+    <div class="view" id="view-persons">
+      <div class="section-header"><div><h1 class="section-title">个人档案</h1><p class="page-subtitle">群成员档案与事实信息</p></div></div>
+      <div class="content-panel glass" id="persons-list-panel"><div id="persons-list"></div></div>
+      <div class="content-panel glass mt-lg" id="person-profile-panel" style="display:none;">
+        <div class="panel-header">
+          <h2 class="panel-title" id="person-profile-name"></h2>
+          <button class="btn btn-sm" onclick="navigateTo('persons')">返回列表</button>
+        </div>
+        <div id="person-profile-detail"></div>
+      </div>
+    </div>
+
     <div class="view" id="view-settings">
       <div class="section-header"><div><h1 class="section-title">设置</h1><p class="page-subtitle">系统配置与操作</p></div></div>
       <div class="settings-group glass" id="settings-config"></div>
@@ -513,7 +534,8 @@ function buildHtml(): string {
     let allFileJobs = [];
     let allCronJobs = [];
     let allQaLogs = [];
-    let selectedQaLogId = null;
+    let allPersons = [];
+    let selectedPersonId = null;
     let statusData = null;
 
     function fmt(value) { return value == null || value === "" ? "-" : String(value); }
@@ -557,6 +579,7 @@ function buildHtml(): string {
       if (view === "files") renderFilesView();
       if (view === "tasks") renderTasksView();
       if (view === "qa-logs") renderQaLogsView();
+      if (view === "persons") renderPersonsView();
     }
 
     document.querySelectorAll(".nav-item, .mobile-nav-item").forEach(function(el) {
@@ -860,6 +883,93 @@ function buildHtml(): string {
       container.innerHTML = html;
     }
 
+    function renderPersonsView() {
+      var listEl = document.getElementById("persons-list");
+      var profilePanel = document.getElementById("person-profile-panel");
+      if (profilePanel) profilePanel.style.display = "none";
+      if (!allPersons || allPersons.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">还没有个人档案。系统会自动从聊天记录中识别群成员。</div>';
+        return;
+      }
+      var html = '<table class="data-table"><thead><tr><th>成员</th><th>档案条目</th><th>消息数</th></tr></thead><tbody>';
+      for (var i = 0; i < allPersons.length; i++) {
+        var p = allPersons[i];
+        html += '<tr onclick="showPersonProfile(' + String.fromCharCode(39) + escapeHtml(p.id) + String.fromCharCode(39) + ')" style="cursor:pointer;">' +
+          '<td><span style="font-weight:500;">' + escapeHtml(p.primaryName) + '</span></td>' +
+          '<td>' + escapeHtml(p.profileEntryCount) + '</td>' +
+          '<td>' + escapeHtml(p.messageCount) + '</td></tr>';
+      }
+      html += '</tbody></table>';
+      listEl.innerHTML = html;
+    }
+
+    async function showPersonProfile(id) {
+      selectedPersonId = id;
+      var listEl = document.getElementById("persons-list-panel");
+      var profilePanel = document.getElementById("person-profile-panel");
+      var detailEl = document.getElementById("person-profile-detail");
+      if (listEl) listEl.style.display = "none";
+      if (profilePanel) profilePanel.style.display = "block";
+      detailEl.innerHTML = '<div class="empty-state">正在加载个人档案...</div>';
+      try {
+        var profile = await fetchJson("/api/persons/" + encodeURIComponent(id) + "/profile");
+        var messages = await fetchJson("/api/persons/" + encodeURIComponent(id) + "/messages?limit=50");
+        renderPersonProfile(id, profile, messages.items || []);
+      } catch (error) {
+        detailEl.innerHTML = '<div class="empty-state">加载失败：' + escapeHtml(error instanceof Error ? error.message : String(error)) + '</div>';
+      }
+    }
+
+    function renderPersonProfile(id, profile, messages) {
+      var el = document.getElementById("person-profile-detail");
+      var nameEl = document.getElementById("person-profile-name");
+      if (nameEl) nameEl.textContent = profile.person.primaryName;
+      var html = '';
+      var identities = profile.identities || [];
+      if (identities.length > 0) {
+        html += '<div class="mb-md"><span style="color:var(--text-muted);font-size:13px;">身份：</span> ';
+        html += identities.map(function(id) { return escapeHtml(id.displayName) + ' (' + escapeHtml(id.platform) + ')'; }).join('，');
+        html += '</div>';
+      }
+      var entries = profile.entries || [];
+      if (entries.length === 0) {
+        html += '<div class="empty-state">还没有档案条目。</div>';
+      } else {
+        html += '<div class="grid-2">';
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i];
+          var evidence = entry.evidence || [];
+          html += '<div class="content-panel" style="background:rgba(255,255,255,0.03);padding:var(--space-md);">' +
+            '<div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm);">' +
+            '<span class="tag">' + escapeHtml(entry.category) + '</span>' +
+            '<span class="tag ' + (entry.entryType === 'fact' ? 'tag-success' : 'tag-info') + '">' + escapeHtml(entry.entryType) + '</span>' +
+            '<span style="font-size:12px;color:var(--text-muted);">' + escapeHtml(Math.round(entry.confidence * 100)) + '%</span>' +
+            '</div>' +
+            '<div style="font-weight:500;margin-bottom:var(--space-xs);">' + escapeHtml(entry.content) + '</div>';
+          if (evidence.length > 0) {
+            html += '<div style="font-size:12px;color:var(--text-muted);">证据：' +
+              evidence.map(function(e) { return '<span style="display:block;margin-top:2px;">"' + escapeHtml(e.quote) + '" (' + escapeHtml(e.reason) + ')</span>'; }).join('') +
+              '</div>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      if (messages && messages.length > 0) {
+        html += '<h3 style="margin:var(--space-lg) 0 var(--space-sm);font-size:16px;">最近消息</h3>';
+        html += '<div class="message-list">';
+        for (var j = 0; j < Math.min(messages.length, 10); j++) {
+          var msg = messages[j];
+          html += '<div class="message-card"><div class="message-meta">' +
+            '<span>' + escapeHtml(formatDateTime(msg.sentAt)) + '</span>' +
+            '<span>' + escapeHtml(displayChatName(msg.chatName, msg.platform)) + '</span>' +
+            '</div><div class="message-text">' + escapeHtml(msg.text) + '</div></div>';
+        }
+        html += '</div>';
+      }
+      el.innerHTML = html;
+    }
+
     function renderSettings(status) {
       var el = document.getElementById("settings-config");
       var html = '<h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-md);">\u7cfb\u7edf\u914d\u7f6e</h3>';
@@ -890,6 +1000,7 @@ function buildHtml(): string {
       await loadSection("/api/file-jobs", function(data) { allFileJobs = data.items || []; });
       await loadSection("/api/qa-logs?limit=20", function(data) { allQaLogs = data.items || []; });
       await loadSection("/api/cron-jobs", function(data) { allCronJobs = data.items || []; });
+      await loadSection("/api/persons", function(data) { allPersons = data.items || []; });
       if (currentView === "messages") renderMessagesView();
       if (currentView === "episodes") renderEpisodesView();
       if (currentView === "files") renderFilesView();
@@ -897,6 +1008,10 @@ function buildHtml(): string {
       if (currentView === "qa-logs") {
         renderQaLogsView();
         if (selectedQaLogId) void showQaLogDetail(selectedQaLogId);
+      }
+      if (currentView === "persons") {
+        renderPersonsView();
+        if (selectedPersonId) void showPersonProfile(selectedPersonId);
       }
     }
 
@@ -991,6 +1106,7 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
   const fileJobs = new FileJobRepository(database);
   const qaLogs = new QaLogRepository(database);
   const cronJobs = new CronJobRepository(database);
+  const profiles = new ProfileRepository(database);
   let webActionToken = "";
   const tokenReady = (async () => {
     const secrets = await loadSecrets();
@@ -1105,6 +1221,48 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
 
     const ok = cronJobs.deleteByChat(id, job.chatId);
     return { ok };
+  });
+
+  app.get("/api/persons", async (_request) => {
+    const persons = profiles.listPersons();
+    const items = persons.map((person) => {
+      const profile = profiles.getPersonProfile(person.id, { includeEvidence: false, includeInferred: true });
+      return {
+        id: person.id,
+        primaryName: person.primaryName,
+        profileEntryCount: profile?.entries.length ?? 0,
+        messageCount: (database.prepare(
+          "SELECT COUNT(1) AS count FROM messages WHERE person_id = ?"
+        ).get(person.id) as { count: number }).count,
+      };
+    });
+    return { items };
+  });
+
+  app.get("/api/persons/:id/profile", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const profile = profiles.getPersonProfile(id, { includeEvidence: true, includeInferred: true });
+    if (!profile) {
+      reply.code(404);
+      return { ok: false, message: "没有找到该成员。" };
+    }
+    return profile;
+  });
+
+  app.get("/api/persons/:id/messages", async (request) => {
+    const id = (request.params as { id: string }).id;
+    const limit = parseLimit((request.query as { limit?: string }).limit, 50, 200);
+    const rows = database.prepare(
+      `SELECT m.id, m.platform, m.platform_message_id AS platformMessageId, m.sender_id AS senderId,
+        m.sender_name AS senderName, m.message_type AS messageType, m.text, m.sent_at AS sentAt,
+        c.name AS chatName, c.platform_chat_id AS platformChatId
+      FROM messages m
+      JOIN chats c ON c.id = m.chat_id
+      WHERE m.person_id = ?
+      ORDER BY m.sent_at DESC, m.created_at DESC
+      LIMIT ?`
+    ).all(id, limit);
+    return { items: rows };
   });
 
   app.post("/api/process/messages", async (request, reply) => {
