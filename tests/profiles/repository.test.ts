@@ -246,6 +246,28 @@ describe("ProfileRepository", () => {
     });
   });
 
+  test("backfill limit leaves extra messages for a later run", () => {
+    const db = createDb();
+    const messages = new MessageRepository(db);
+    const profiles = new ProfileRepository(db);
+    for (const id of ["msg-1", "msg-2"]) {
+      messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        chatName: "家庭群",
+        platformMessageId: id,
+        senderId: "ou_123",
+        senderName: "小王",
+        messageType: "text",
+        text: id,
+        sentAt: `2026-05-29T00:0${id.endsWith("1") ? "1" : "2"}:00.000Z`,
+      });
+    }
+
+    expect(profiles.backfillMessagePersons({ limit: 1 }).updatedMessages).toBe(1);
+    expect(profiles.backfillMessagePersons({ limit: 10 }).updatedMessages).toBe(1);
+  });
+
   test("backfill respects limit and processes oldest messages first", () => {
     const db = createDb();
     const messages = new MessageRepository(db);

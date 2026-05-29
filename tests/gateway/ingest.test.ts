@@ -8,6 +8,8 @@ import type { FeishuMemberResolver } from "../../src/feishu/members.js";
 import { FeishuResourceDownloader } from "../../src/feishu/resource-downloader.js";
 import { GatewayIngestor } from "../../src/gateway/ingest.js";
 import { MessageRepository } from "../../src/messages/repository.js";
+
+import { ProfileRepository } from "../../src/profiles/repository.js";
 import { ImageMultimodalTaskRepository } from "../../src/multimodal/tasks.js";
 import { MessageFtsRetriever } from "../../src/rag/message-retriever.js";
 
@@ -84,6 +86,40 @@ describe("GatewayIngestor", () => {
       expect(first).toMatchObject({ accepted: true, duplicate: false });
       expect(second).toMatchObject({ accepted: true, duplicate: true, messageId: first.messageId });
       expect(new MessageRepository(database).getMessageCount()).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("ingests Feishu messages with a stable person id", () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+
+    try {
+      const profiles = new ProfileRepository(database);
+      const ingestor = new GatewayIngestor(database, { profiles });
+
+      const result = ingestor.ingestFeishuEvent({
+        event: {
+          sender: { sender_id: { open_id: "ou_123" } },
+          message: {
+            message_id: "om_msg",
+            chat_id: "oc_chat",
+            create_time: "1777111200000",
+            message_type: "text",
+            content: JSON.stringify({ text: "我今天医院值夜班" }),
+          },
+        },
+      });
+
+      const row = database
+        .prepare("SELECT person_id AS personId FROM messages WHERE id = ?")
+        .get(result.messageId) as { personId: string | null } | undefined;
+
+      expect(result.accepted).toBe(true);
+      expect(row?.personId).toMatch(/^person_/);
+      expect(profiles.getPersonProfile(row!.personId!)?.person.primaryName).toBe("ou_123");
     } finally {
       database.close();
     }
