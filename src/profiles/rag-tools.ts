@@ -143,7 +143,7 @@ function createSearchPersonMessagesTool(profiles: ProfileRepository): RagSearchT
       "Search chat messages sent by a specific person only. Use this when the question is explicitly about what a particular person said, or when you need to find messages from a specific person.",
     inputSchema: searchMessagesInputSchema,
     execute: async (input: unknown): Promise<EvidenceBlock[]> => {
-      const personId = parsePersonId(input);
+      const personId = resolvePersonId(profiles, input);
       const query = parseQuery(input);
       const limit = parseLimit(input);
 

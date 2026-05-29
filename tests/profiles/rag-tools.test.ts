@@ -273,8 +273,8 @@ describe("createPersonProfileTools", () => {
     const tools = createPersonProfileTools({ profiles });
     const searchMessages = tools.find((t) => t.name === "search_person_messages")!;
 
-    await expect(searchMessages.execute({ query: "出差" })).rejects.toThrow("personId 必须是非空字符串。");
-    await expect(searchMessages.execute({ personId: "   ", query: "出差" })).rejects.toThrow("personId 必须是非空字符串。");
+    await expect(searchMessages.execute({ query: "出差" })).rejects.toThrow("personId 或 senderId + platformChatId 必须提供。");
+    await expect(searchMessages.execute({ personId: "   ", query: "出差" })).rejects.toThrow("personId 或 senderId + platformChatId 必须提供。");
   });
 
   test("search_person_messages rejects when query is missing or empty", async () => {

@@ -397,6 +397,7 @@ export class FeishuQuestionHandler {
       secrets: this.options.secrets,
       database: this.options.database,
       messages: new MessageRepository(this.options.database),
+      excludeMessageIds: options.excludeMessageIds,
       profileTools: createPersonProfileTools({ profiles: new ProfileRepository(this.options.database) }),
     });
 
