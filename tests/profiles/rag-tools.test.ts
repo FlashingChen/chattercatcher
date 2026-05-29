@@ -21,7 +21,7 @@ describe("createPersonProfileTools", () => {
     expect(tools.map((t) => t.name)).toEqual(["get_person_profile", "search_person_messages"]);
   });
 
-  test("each tool has inputSchema with required fields", () => {
+  test("each tool has inputSchema with optional profile lookup fields", () => {
     const db = createDb();
     const profiles = new ProfileRepository(db);
     const tools = createPersonProfileTools({ profiles });
@@ -33,8 +33,11 @@ describe("createPersonProfileTools", () => {
       type: "object",
       properties: {
         personId: { type: "string", description: expect.any(String) },
+        senderId: { type: "string", description: expect.any(String) },
+        platformChatId: { type: "string", description: expect.any(String) },
+        includeEvidence: { type: "boolean", description: expect.any(String) },
+        includeInferred: { type: "boolean", description: expect.any(String) },
       },
-      required: ["personId"],
       additionalProperties: false,
     });
 
@@ -92,13 +95,58 @@ describe("createPersonProfileTools", () => {
     const results = await getProfile.execute({ personId: person.id });
 
     expect(results).toHaveLength(1);
-    expect(results[0]?.id).toMatch(/^profile_entry_/);
+    expect(results[0]?.id).toBe(`person_profile:${person.id}`);
     expect(results[0]?.text).toContain("小王在医院工作");
     expect(results[0]?.source).toMatchObject({
       type: "person_profile",
       label: "小王",
       personId: person.id,
     });
+  });
+
+  test("get_person_profile resolves by sender id and chat id", async () => {
+    const db = createDb();
+    const messages = new MessageRepository(db);
+    const profiles = new ProfileRepository(db);
+    const person = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+    const messageId = messages.ingest({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      chatName: "家庭群",
+      platformMessageId: "msg-1",
+      senderId: "ou_123",
+      senderName: "小王",
+      personId: person.id,
+      messageType: "text",
+      text: "我今天医院值夜班",
+      sentAt: "2026-05-29T00:02:00.000Z",
+    });
+    profiles.upsertProfileEntry({
+      personId: person.id,
+      category: "职业",
+      content: "小王在医院工作。",
+      entryType: "fact",
+      confidence: 0.9,
+      source: "dream",
+      evidence: [{ messageId, quote: "医院值夜班", reason: "提到医院值夜班" }],
+      observedAt: "2026-05-29T00:03:00.000Z",
+    });
+
+    const tools = createPersonProfileTools({ profiles });
+    const getProfile = tools.find((t) => t.name === "get_person_profile")!;
+    const results = await getProfile.execute({ senderId: "ou_123", platformChatId: "chat-a", includeEvidence: true });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.text).toContain("小王在医院工作");
+    expect(results[0]?.text).toContain("证据");
+    expect(results[0]?.source).toMatchObject({ personId: person.id, profileAvailable: true });
   });
 
   test("get_person_profile returns empty array for unknown person", async () => {
@@ -112,14 +160,14 @@ describe("createPersonProfileTools", () => {
     expect(results).toEqual([]);
   });
 
-  test("get_person_profile rejects when personId is missing or empty", async () => {
+  test("get_person_profile rejects when personId and sender lookup are missing or empty", async () => {
     const db = createDb();
     const profiles = new ProfileRepository(db);
     const tools = createPersonProfileTools({ profiles });
     const getProfile = tools.find((t) => t.name === "get_person_profile")!;
 
-    await expect(getProfile.execute({})).rejects.toThrow("personId 必须是非空字符串。");
-    await expect(getProfile.execute({ personId: "   " })).rejects.toThrow("personId 必须是非空字符串。");
+    await expect(getProfile.execute({})).rejects.toThrow("personId 或 senderId + platformChatId 必须提供。" );
+    await expect(getProfile.execute({ personId: "   " })).rejects.toThrow("personId 或 senderId + platformChatId 必须提供。" );
   });
 
   test("search_person_messages searches messages for a specific person", async () => {

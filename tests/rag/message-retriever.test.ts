@@ -49,7 +49,9 @@ describe("MessageFtsRetriever", () => {
       type: "message",
       label: "家庭群",
       sender: "Alice",
+      senderId: "alice",
       personId: person.id,
+      profileAvailable: true,
     });
   });
 
@@ -76,6 +78,8 @@ describe("MessageFtsRetriever", () => {
       type: "message",
       label: "家庭群",
       sender: "Alice",
+      senderId: "alice",
+      profileAvailable: false,
     });
     expect(results[0]?.source).not.toHaveProperty("personId");
   });

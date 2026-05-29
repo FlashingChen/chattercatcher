@@ -10,6 +10,8 @@ import type { GatewayIngestAndDownloadResult, GatewayIngestor } from "../gateway
 import type { IndexingScheduler } from "../gateway/indexing-scheduler.js";
 import { createIndexingScheduler } from "../gateway/indexing-scheduler.js";
 import { MessageRepository } from "../messages/repository.js";
+import { createPersonProfileTools } from "../profiles/rag-tools.js";
+import { ProfileRepository } from "../profiles/repository.js";
 import { createAgenticRagSearchTools } from "../rag/factory.js";
 import { processMessagesNow } from "../rag/manual-index.js";
 import type { ChatModel } from "../rag/types.js";
@@ -285,6 +287,7 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
               database: options.cronJobProcessor!.database,
               messages: new MessageRepository(options.cronJobProcessor!.database),
               scope: { platform: "feishu", platformChatId: job.chatId },
+              profileTools: createPersonProfileTools({ profiles: new ProfileRepository(options.cronJobProcessor!.database) }),
             });
             try {
               const memberPrompt = formatFeishuMemberPrompt(

@@ -19,7 +19,7 @@ const DEFAULT_MAX_EVIDENCE = 12;
 const NO_EVIDENCE_ANSWER = "不知道。当前本地知识库没有检索到足够证据。";
 
 const AGENTIC_SYSTEM_PROMPT =
-  "你是本地知识信息收集代理。你的职责是围绕用户问题决定是否调用搜索工具、选择合适的工具和查询词，并根据当前结果决定是否继续搜索。不要编造任何证据或声称看过未检索到的内容。你的输出只用于收集证据，最终答案会由另一个基于证据的步骤生成。检索证据中的时间戳是消息被发送时的真实时间。若问题或证据包含“今天”“明天”“今晚”等相对时间表述，必须基于当前时间和证据时间戳推导为具体日期。如果可用 get_person_profile / search_person_messages 工具，用于按人检索 profile 记录和消息证据：get_person_profile 获取某人的已知事实和推断；search_person_messages 仅搜该人发送过的消息。";
+  "你是本地知识信息收集代理。你的职责是围绕用户问题决定是否调用搜索工具、选择合适的工具和查询词，并根据当前结果决定是否继续搜索。不要编造任何证据或声称看过未检索到的内容。你的输出只用于收集证据，最终答案会由另一个基于证据的步骤生成。检索证据中的时间戳是消息被发送时的真实时间。若问题或证据包含“今天”“明天”“今晚”等相对时间表述，必须基于当前时间和证据时间戳推导为具体日期。当 evidence 包含 personId/profileAvailable 且问题依赖这个人是谁、职业、性格、偏好、关系或近期状态时，先调用 get_person_profile；不要默认加载所有人的档案。对 inferred 档案必须用“可能”“从近期对话看”“目前推测”等不确定语气。需要查某个人说过什么时调用 search_person_messages。";
 
 function toToolResultContent(results: EvidenceBlock[]): string {
   return JSON.stringify(

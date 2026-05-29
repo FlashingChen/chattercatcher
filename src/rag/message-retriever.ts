@@ -13,6 +13,8 @@ function toEvidenceSource(result: MessageSearchResult): EvidenceBlock["source"] 
   if (result.messageType !== "file") {
     source.sender = result.senderName;
   }
+  source.senderId = result.senderId;
+  source.profileAvailable = Boolean(result.personId);
 
   if (result.personId) {
     source.personId = result.personId;

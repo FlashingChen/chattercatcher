@@ -365,6 +365,21 @@ export class ProfileRepository {
   }
 
 
+  resolvePersonIdForSender(input: { senderId: string; platformChatId: string; platform?: string }): string | undefined {
+    const platform = input.platform ?? "feishu";
+    const row = this.database
+      .prepare(
+        `
+        SELECT person_id AS personId
+        FROM person_identities
+        WHERE platform = ? AND platform_chat_id = ? AND external_user_id = ?
+        LIMIT 1
+      `,
+      )
+      .get(platform, input.platformChatId, input.senderId) as { personId: string } | undefined;
+    return row?.personId;
+  }
+
   searchPersonMessages(personId: string, query: string, limit: number, options: { excludeMessageIds?: string[] } = {}): MessageSearchResult[] {
     const cleaned = query
       .trim()

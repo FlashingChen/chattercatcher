@@ -2,12 +2,23 @@ import type { EvidenceBlock } from "../rag/types.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
 import type { ProfileRepository } from "./repository.js";
 
+type GetProfileInput = {
+  personId?: unknown;
+  senderId?: unknown;
+  platformChatId?: unknown;
+  includeEvidence?: unknown;
+  includeInferred?: unknown;
+};
+
 const getProfileInputSchema = {
   type: "object",
   properties: {
-    personId: { type: "string", description: "The stable person identifier to fetch profile entries for." },
+    personId: { type: "string", description: "Stable person identifier from retrieved evidence." },
+    senderId: { type: "string", description: "Message sender id when personId is unavailable." },
+    platformChatId: { type: "string", description: "Chat id paired with senderId for profile lookup." },
+    includeEvidence: { type: "boolean", description: "Whether to include evidence snippets in the profile text." },
+    includeInferred: { type: "boolean", description: "Whether to include inferred profile entries." },
   },
-  required: ["personId"],
   additionalProperties: false,
 };
 
@@ -21,6 +32,30 @@ const searchMessagesInputSchema = {
   required: ["personId", "query"],
   additionalProperties: false,
 };
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function resolvePersonId(profiles: ProfileRepository, input: unknown): string {
+  const raw = (typeof input === "object" && input !== null ? input : {}) as GetProfileInput;
+  const personId = readString(raw.personId);
+  if (personId) return personId;
+
+  const senderId = readString(raw.senderId);
+  const platformChatId = readString(raw.platformChatId);
+  if (senderId && platformChatId) {
+    const resolved = profiles.resolvePersonIdForSender({ senderId, platformChatId });
+    if (resolved) return resolved;
+  }
+
+  throw new Error("personId 或 senderId + platformChatId 必须提供。");
+}
+
+function parseBoolean(input: unknown, key: "includeEvidence" | "includeInferred", defaultValue: boolean): boolean {
+  const value = typeof input === "object" && input !== null ? (input as Record<string, unknown>)[key] : undefined;
+  return typeof value === "boolean" ? value : defaultValue;
+}
 
 function parsePersonId(input: unknown): string {
   const raw =
@@ -66,27 +101,37 @@ function createGetPersonProfileTool(profiles: ProfileRepository): RagSearchTool 
   return {
     name: "get_person_profile",
     description:
-      "Retrieve stored profile entries (facts and inferences) for a specific person by their stable identifier. Use this when the question is about a particular person's traits, habits, preferences, or other stored knowledge.",
+      "Retrieve an evidence-backed profile for a person. Use this when the question depends on who someone is, their role, preferences, personality, relationships, or recent state.",
     inputSchema: getProfileInputSchema,
     execute: async (input: unknown): Promise<EvidenceBlock[]> => {
-      const personId = parsePersonId(input);
-      const profile = profiles.getPersonProfile(personId);
+      const personId = resolvePersonId(profiles, input);
+      const includeEvidence = parseBoolean(input, "includeEvidence", false);
+      const includeInferred = parseBoolean(input, "includeInferred", true);
+      const profile = profiles.getPersonProfile(personId, { includeEvidence, includeInferred });
 
       if (!profile) {
         return [];
       }
 
-      return profile.entries.map((entry) => ({
-        id: entry.id,
-        text: entry.content,
-        score: entry.confidence,
+      const aliases = profile.identities.map((identity) => identity.displayName).filter(Boolean).join("、");
+      const entries = profile.entries.map((entry) => {
+        const evidence = includeEvidence && entry.evidence?.length
+          ? `\n  证据：${entry.evidence.map((item) => `${item.quote}（${item.reason}）`).join("；")}`
+          : "";
+        return `- [${entry.entryType}] ${entry.category}：${entry.content}（置信度 ${entry.confidence}，来源 ${entry.source}）${evidence}`;
+      });
+
+      return [{
+        id: `person_profile:${profile.person.id}`,
+        text: [`人物：${profile.person.primaryName}`, aliases ? `身份/昵称：${aliases}` : undefined, ...entries].filter(Boolean).join("\n"),
+        score: 1,
         source: {
-          type: "person_profile" as const,
+          type: "person_profile",
           label: profile.person.primaryName,
           personId: profile.person.id,
-          timestamp: entry.lastObservedAt,
+          profileAvailable: true,
         },
-      }));
+      }];
     },
   };
 }
@@ -112,8 +157,10 @@ function createSearchPersonMessagesTool(profiles: ProfileRepository): RagSearchT
           type: result.messageType === "file" ? ("file" as const) : ("message" as const),
           label: result.chatName,
           sender: result.senderName,
+          senderId: result.senderId,
           timestamp: result.sentAt,
           personId: result.personId ?? undefined,
+          profileAvailable: Boolean(result.personId),
         },
       }));
     },
