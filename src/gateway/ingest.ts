@@ -13,6 +13,7 @@ import { MessageRepository } from "../messages/repository.js";
 import type { IngestMessageInput } from "../messages/types.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { ImageMultimodalTaskRecord } from "../multimodal/types.js";
+import type { ProfileRepository } from "../profiles/repository.js";
 
 export interface GatewayIngestResult {
   accepted: boolean;
@@ -35,6 +36,10 @@ export interface GatewayAttachmentIngestResult {
 
 export interface GatewayIngestAndDownloadResult extends GatewayIngestResult {
   attachment?: GatewayAttachmentIngestResult;
+}
+
+export interface GatewayIngestorOptions {
+  profiles?: ProfileRepository;
 }
 
 function extractFeishuSenderOpenId(message: IngestMessageInput): string | undefined {
@@ -74,10 +79,29 @@ export class GatewayIngestor {
   private readonly jobs: FileJobRepository;
   private readonly imageTasks: ImageMultimodalTaskRepository;
 
-  constructor(public readonly database: SqliteDatabase) {
+  constructor(
+    public readonly database: SqliteDatabase,
+    private readonly options: GatewayIngestorOptions = {},
+  ) {
     this.messages = new MessageRepository(database);
     this.jobs = new FileJobRepository(database);
     this.imageTasks = new ImageMultimodalTaskRepository(database);
+  }
+
+  private enrichWithPerson(input: IngestMessageInput): IngestMessageInput {
+    const person = this.options.profiles?.resolvePersonForSender({
+      platform: input.platform,
+      platformChatId: input.platformChatId,
+      senderId: input.senderId,
+      senderName: input.senderName,
+      source: "message",
+      observedAt: input.sentAt,
+    });
+
+    return {
+      ...input,
+      personId: person?.id,
+    };
   }
 
   ingestFeishuEvent(payload: FeishuReceiveMessageEvent): GatewayIngestResult {
@@ -89,12 +113,13 @@ export class GatewayIngestor {
       };
     }
 
-    const duplicate = this.messages.hasPlatformMessage(normalized.platform, normalized.platformMessageId);
-    const messageId = this.messages.ingest(normalized);
+    const enriched = this.enrichWithPerson(normalized);
+    const duplicate = this.messages.hasPlatformMessage(enriched.platform, enriched.platformMessageId);
+    const messageId = this.messages.ingest(enriched);
     return {
       accepted: true,
       messageId,
-      message: normalized,
+      message: enriched,
       duplicate,
     };
   }
@@ -115,7 +140,7 @@ export class GatewayIngestor {
     const senderName = openId
       ? await input.memberResolver.resolveOpenIdName(normalized.platformChatId, openId)
       : normalized.senderName;
-    const enriched = { ...normalized, senderName };
+    const enriched = this.enrichWithPerson({ ...normalized, senderName });
     const duplicate = this.messages.hasPlatformMessage(enriched.platform, enriched.platformMessageId);
     const messageId = this.messages.ingest(enriched);
     return {
