@@ -487,6 +487,89 @@ export class ProfileRepository {
       .all(...params, ...excludedIds, personId, limit) as MessageSearchResult[];
   }
 
+  getProfileEntry(entryId: string): ProfileEntryRecord | undefined {
+    const row = this.database
+      .prepare(
+        `
+        SELECT
+          id,
+          person_id AS personId,
+          category,
+          content,
+          entry_type AS entryType,
+          confidence,
+          status,
+          source,
+          created_at AS createdAt,
+          updated_at AS updatedAt,
+          last_observed_at AS lastObservedAt
+        FROM person_profile_entries
+        WHERE id = ?
+      `,
+      )
+      .get(entryId) as ProfileEntryRecord | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return { ...row, evidence: this.getEvidence(entryId) };
+  }
+
+  replaceProfileEntry(input: { supersedeEntryId: string; input: UpsertProfileEntryInput }): string {
+    if (input.input.evidence.length === 0) {
+      throw new Error("Profile entry evidence is required.");
+    }
+
+    const timestamp = input.input.observedAt ?? nowIso();
+    const newEntryId = createId("profile_entry", [input.input.personId, input.input.category, input.input.content]);
+    const transaction = this.database.transaction(() => {
+      // Create the new entry
+      this.database
+        .prepare(
+          `
+          INSERT INTO person_profile_entries (
+            id, person_id, category, content, entry_type, confidence, status, source, created_at, updated_at, last_observed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+        `,
+        )
+        .run(newEntryId, input.input.personId, input.input.category, input.input.content, input.input.entryType, input.input.confidence, input.input.source, timestamp, timestamp, timestamp);
+
+      // Mark old entry as superseded
+      this.database
+        .prepare(
+          `
+          UPDATE person_profile_entries
+          SET status = 'superseded', updated_at = ?
+          WHERE id = ? AND status = 'active'
+        `,
+        )
+        .run(timestamp, input.supersedeEntryId);
+
+      // Insert evidence for the new entry
+      const insertEvidence = this.database.prepare(
+        `
+        INSERT INTO person_profile_evidence (entry_id, message_id, quote, reason)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(entry_id, message_id, quote) DO UPDATE SET reason = excluded.reason
+      `,
+      );
+      for (const evidence of input.input.evidence) {
+        insertEvidence.run(newEntryId, evidence.messageId, evidence.quote, evidence.reason);
+      }
+    });
+    transaction();
+
+    return newEntryId;
+  }
+
+  markProfileEntryDeleted(entryId: string): void {
+    const timestamp = nowIso();
+    this.database
+      .prepare("UPDATE person_profile_entries SET status = 'deleted', updated_at = ? WHERE id = ?")
+      .run(timestamp, entryId);
+  }
+
   personExists(personId: string): boolean {
     const row = this.database.prepare("SELECT 1 AS existsFlag FROM persons WHERE id = ? LIMIT 1").get(personId) as { existsFlag: number } | undefined;
     return Boolean(row);

@@ -307,6 +307,133 @@ describe("ProfileRepository", () => {
     ]);
   });
 
+  test("supersedes old profile entry: new entry is active, old entry status becomes superseded", () => {
+    const db = createDb();
+    const messages = new MessageRepository(db);
+    const profiles = new ProfileRepository(db);
+    const person = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+    const messageId = messages.ingest({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      chatName: "家庭群",
+      platformMessageId: "msg-1",
+      senderId: "ou_123",
+      senderName: "小王",
+      personId: person.id,
+      messageType: "text",
+      text: "我最近转去儿科了",
+      sentAt: "2026-05-29T00:02:00.000Z",
+    });
+
+    const oldEntryId = profiles.upsertProfileEntry({
+      personId: person.id,
+      category: "职业",
+      content: "小王在医院工作。",
+      entryType: "fact",
+      confidence: 0.7,
+      source: "dream",
+      evidence: [{ messageId, quote: "医院值夜班", reason: "提到值夜班" }],
+      observedAt: "2026-05-29T00:03:00.000Z",
+    });
+
+    // Act: replace the old entry with a corrected one
+    const newEntryId = profiles.replaceProfileEntry({
+      supersedeEntryId: oldEntryId,
+      input: {
+        personId: person.id,
+        category: "职业",
+        content: "小王在儿科工作。",
+        entryType: "fact",
+        confidence: 0.95,
+        source: "manual",
+        evidence: [{ messageId, quote: "我最近转去儿科了", reason: "用户手动纠正" }],
+        observedAt: "2026-05-29T00:04:00.000Z",
+      },
+    });
+
+    // Assert: new entry is active
+    const newEntry = profiles.getProfileEntry(newEntryId);
+    expect(newEntry).toMatchObject({
+      id: newEntryId,
+      personId: person.id,
+      content: "小王在儿科工作。",
+      confidence: 0.95,
+      status: "active",
+      source: "manual",
+    });
+
+    // Assert: old entry is superseded
+    const oldEntry = profiles.getProfileEntry(oldEntryId);
+    expect(oldEntry).toMatchObject({
+      id: oldEntryId,
+      status: "superseded",
+      content: "小王在医院工作。",
+    });
+
+    // Assert: profile only returns active entries
+    const profile = profiles.getPersonProfile(person.id, { includeInferred: true });
+    const activeEntryIds = profile?.entries.map((e) => e.id) ?? [];
+    expect(activeEntryIds).toContain(newEntryId);
+    expect(activeEntryIds).not.toContain(oldEntryId);
+  });
+
+  test("markProfileEntryDeleted sets entry status to deleted", () => {
+    const db = createDb();
+    const messages = new MessageRepository(db);
+    const profiles = new ProfileRepository(db);
+    const person = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+    const messageId = messages.ingest({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      chatName: "家庭群",
+      platformMessageId: "msg-1",
+      senderId: "ou_123",
+      senderName: "小王",
+      personId: person.id,
+      messageType: "text",
+      text: "测试消息",
+      sentAt: "2026-05-29T00:02:00.000Z",
+    });
+
+    const entryId = profiles.upsertProfileEntry({
+      personId: person.id,
+      category: "测试",
+      content: "待删除的条目。",
+      entryType: "fact",
+      confidence: 0.5,
+      source: "manual",
+      evidence: [{ messageId, quote: "测试消息", reason: "测试用" }],
+      observedAt: "2026-05-29T00:03:00.000Z",
+    });
+
+    profiles.markProfileEntryDeleted(entryId);
+
+    const entry = profiles.getProfileEntry(entryId);
+    expect(entry).toMatchObject({
+      id: entryId,
+      status: "deleted",
+    });
+
+    // Profile listing should not return deleted entries
+    const profile = profiles.getPersonProfile(person.id, { includeInferred: true });
+    const entryIds = profile?.entries.map((e) => e.id) ?? [];
+    expect(entryIds).not.toContain(entryId);
+  });
+
   test("backfill uses one transaction per batch to avoid partial commits", () => {
     const db = createDb();
     const messages = new MessageRepository(db);
