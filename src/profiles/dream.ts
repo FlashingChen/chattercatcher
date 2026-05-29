@@ -158,16 +158,25 @@ export class ProfileDreamProcessor {
     if (!Array.isArray(update.evidence) || update.evidence.length === 0) {
       throw new Error("Dream update evidence is required.");
     }
-    for (const evidence of update.evidence) {
-      if (!messageIds.has(evidence.messageId)) {
-        throw new Error(`Dream update evidence message is outside the processed batch: ${evidence.messageId}`);
-      }
-      if (!evidence.quote.trim() || !evidence.reason.trim()) {
-        throw new Error("Dream update evidence quote and reason are required.");
-      }
+    if (typeof update.category !== "string" || !update.category.trim()) {
+      throw new Error("Dream update category is required.");
     }
-    if (!update.category.trim() || !update.content.trim()) {
-      throw new Error("Dream update category and content are required.");
+    if (typeof update.content !== "string" || !update.content.trim()) {
+      throw new Error("Dream update content is required.");
+    }
+    for (const evidence of update.evidence) {
+      if (!evidence || typeof evidence !== "object") {
+        throw new Error("Dream update evidence item must be an object.");
+      }
+      if (typeof evidence.messageId !== "string" || !messageIds.has(evidence.messageId)) {
+        throw new Error(`Dream update evidence message is outside the processed batch: ${String(evidence.messageId)}`);
+      }
+      if (typeof evidence.quote !== "string" || !evidence.quote.trim()) {
+        throw new Error("Dream update evidence quote is required.");
+      }
+      if (typeof evidence.reason !== "string" || !evidence.reason.trim()) {
+        throw new Error("Dream update evidence reason is required.");
+      }
     }
   }
 }

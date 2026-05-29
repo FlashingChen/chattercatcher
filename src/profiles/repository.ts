@@ -184,7 +184,7 @@ export class ProfileRepository {
     }
 
     const timestamp = input.observedAt ?? nowIso();
-    const entryId = createId("profile_entry", [input.personId, input.category, input.content, timestamp]);
+    const entryId = createId("profile_entry", [input.personId, input.category, input.content]);
     const transaction = this.database.transaction(() => {
       this.database
         .prepare(
@@ -192,6 +192,12 @@ export class ProfileRepository {
           INSERT INTO person_profile_entries (
             id, person_id, category, content, entry_type, confidence, status, source, created_at, updated_at, last_observed_at
           ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            confidence = MAX(person_profile_entries.confidence, excluded.confidence),
+            status = 'active',
+            source = excluded.source,
+            updated_at = excluded.updated_at,
+            last_observed_at = excluded.last_observed_at
         `,
         )
         .run(entryId, input.personId, input.category, input.content, input.entryType, input.confidence, input.source, timestamp, timestamp, timestamp);
@@ -200,6 +206,7 @@ export class ProfileRepository {
         `
         INSERT INTO person_profile_evidence (entry_id, message_id, quote, reason)
         VALUES (?, ?, ?, ?)
+        ON CONFLICT(entry_id, message_id, quote) DO UPDATE SET reason = excluded.reason
       `,
       );
       for (const evidence of input.evidence) {
@@ -333,7 +340,7 @@ export class ProfileRepository {
   }
 
   recordDreamRun(input: Omit<DreamRunRecord, "id"> & { id?: string }): string {
-    const id = input.id ?? createId("profile_dream_run", [input.platform, input.platformChatId, input.startedAt, input.finishedAt]);
+    const id = input.id ?? createId("profile_dream_run", [input.platform, input.platformChatId, input.status, input.startedAt, input.finishedAt, crypto.randomUUID()]);
     this.database
       .prepare(
         `
