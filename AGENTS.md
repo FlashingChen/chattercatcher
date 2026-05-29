@@ -116,6 +116,16 @@ npm run build
 - 后台任务必须能从 CLI 和 Web UI 观察。
 - 核心本地运行不能依赖 SaaS-only 服务。
 
+## 发布纪律
+
+每次发版必须：
+
+- 更新 `CHANGELOG.md`，按时间倒序记录本次版本的新增、修复和变更。
+- 确保 `package.json` 的 `files` 字段包含 `CHANGELOG.md`。
+- `CHANGELOG.md` 使用中文，格式参考 https://keepachangelog.com/zh-CN/1.1.0/。
+- 版本号遵守 SemVer。
+- Claude 负责版本 bump、PR 创建和 merge；用户负责 `npm publish`。
+
 ## 文档规则
 
 - 以后所有项目文档默认使用中文。

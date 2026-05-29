@@ -142,6 +142,41 @@
 - 群/成员配置测试。
 - 数据删除测试。
 
+
+## M4：人物档案（Personal Profiles）
+
+目标：ChatterCatcher 自动识别群成员，建立以人物为中心的知识档案，让问答系统理解"谁喜欢什么""谁需要什么"。
+
+### 范围
+
+- 人物身份自动识别：消息入库时从 senderId/senderName 解析人物身份。
+- 档案存储：PersonProfile 数据模型，包含 person、identities、entries。
+- ProfileRepository：本地 SQLite 仓储，支持 upsert、查询、修正。
+- Dream 处理器：周期性批量分析新消息，LLM 自动提取档案更新。
+- 档案 RAG 工具：get_person_profile 和 list_person_profiles Agent 工具。
+- 档案修正：支持通过 API 显式纠正档案条目。
+- Web UI 档案页面：展示人物列表、档案详情和手动修正入口。
+- CLI 档案命令：profiles list、profiles show。
+
+### 验收标准
+
+- 消息入库时自动注册人物身份。
+- 每个群成员拥有独立的档案，包含事实和推断条目。
+- Dream 处理器能批量分析新消息并生成档案更新。
+- 档案条目带证据引用和置信度评分。
+- RAG 问答能检索人物档案作为证据源。
+- Web UI 可查看和修正人物档案。
+- CLI 可列出和查看人物档案。
+
+### 自测
+
+- 人物身份解析测试。
+- 档案 upsert 和查询测试。
+- Dream 处理器 mock LLM 测试。
+- 档案 RAG 工具集成测试。
+- 档案修正 API 测试。
+- Web UI 档案页面构建测试。
+
 ## Backlog
 
 - 更多聊天平台。
@@ -160,4 +195,13 @@
 - 手工 smoke test 记录。
 - 已更新的文档。
 - 一个或多个聚焦的 git commit。
-- 开始发版后维护 changelog。
+
+## 发版纪律
+
+每次发版必须：
+
+- 更新 `CHANGELOG.md`，按时间倒序记录新增、修复和变更。
+- `CHANGELOG.md` 使用中文，格式参考 https://keepachangelog.com/zh-CN/1.1.0/。
+- 版本号遵守 SemVer。
+- `package.json` 的 `files` 字段必须包含 `CHANGELOG.md`。
+- Claude 负责 version bump、PR 和 merge；用户负责 `npm publish`。

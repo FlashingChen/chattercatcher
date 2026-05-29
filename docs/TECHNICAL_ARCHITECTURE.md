@@ -211,6 +211,80 @@ retrieval_debug_json
 created_at
 ```
 
+
+### person_profiles
+
+```text
+id
+primary_name
+notes
+created_at
+updated_at
+```
+
+### person_identities
+
+```text
+person_id
+platform
+platform_chat_id
+external_user_id
+display_name
+alias
+source
+first_seen_at
+last_seen_at
+```
+
+### profile_entries
+
+```text
+id
+person_id
+category
+content
+entry_type
+confidence
+status
+source
+created_at
+updated_at
+last_observed_at
+```
+
+### profile_evidence
+
+```text
+entry_id
+message_id
+quote
+reason
+```
+
+### dream_state
+
+```text
+platform
+platform_chat_id
+last_message_id
+last_message_sent_at
+updated_at
+```
+
+### dream_runs
+
+```text
+id
+platform
+platform_chat_id
+status
+processed_message_count
+generated_entry_count
+error
+started_at
+finished_at
+```
+
 ### jobs
 
 ```text
@@ -239,6 +313,49 @@ RAG 是强制架构路径，不能被 prompt 堆叠替代。
 7. LLM 只基于最终证据块生成答案和引用。
 
 答案生成器只能接收压缩后的证据块，不能接收无限制原始聊天历史。
+
+
+## 人物档案（Personal Profiles）
+
+人物档案是以人物为中心的知识组织方式。每个群成员在 ChatterCatcher 中拥有独立的档案，包含从聊天消息中提取的事实和推断。
+
+### 档案数据流
+
+```text
+消息入库 -> 人物身份解析 -> PersonIdentity 注册
+  -> Dream Processor（周期性批量分析）
+  -> LLM 提取档案更新
+  -> ProfileRepository upsert entries
+  -> RAG 检索时作为证据源
+```
+
+### 档案条目类型
+
+- **fact**：从聊天中明确提取的事实，如"豆豆的编程课是每周六下午 2 点"，置信度高。
+- **inferred**：从聊天模式推断的信息，如"豆豆喜欢编程"，置信度相对较低。
+
+### Dream 处理器
+
+Dream 是对人物档案的自动更新机制：
+
+1. 读取群的 dream_state，获取上次处理位置。
+2. 从 message 表批量拉取新消息（默认每批 100 条）。
+3. 收集本批消息涉及的所有 personId，加载现有档案。
+4. 将消息和现有档案通过 LLM 分析，输出档案更新列表。
+5. 验证每个更新：personId 存在、证据消息在本批次内、置信度在 0-1 范围。
+6. Upsert 档案条目，更新 dream_state 光标。
+7. 记录 dream_run（成功/失败/跳过）。
+
+Dream 只基于当前批次消息输出更新，不回看全部历史，保证增量处理效率。
+
+### RAG 集成
+
+档案检索工具集成在 Agent 工具循环中：
+
+- `get_person_profile`：根据人名或 personId 检索特定人物的档案。
+- `list_person_profiles`：列出当前群的所有人物档案概要。
+
+检索到的档案条目作为 RAG 证据源，和消息、文件、episode summary 一起参与重排和答案生成。
 
 ## 冲突处理
 
