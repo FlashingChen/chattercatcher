@@ -894,7 +894,7 @@ function buildHtml(): string {
       var html = '<table class="data-table"><thead><tr><th>成员</th><th>档案条目</th><th>消息数</th></tr></thead><tbody>';
       for (var i = 0; i < allPersons.length; i++) {
         var p = allPersons[i];
-        html += '<tr onclick="showPersonProfile(' + String.fromCharCode(39) + escapeHtml(p.id) + String.fromCharCode(39) + ')" style="cursor:pointer;">' +
+        html += '<tr data-view-person="' + escapeHtml(p.id) + '" style="cursor:pointer;">' +
           '<td><span style="font-weight:500;">' + escapeHtml(p.primaryName) + '</span></td>' +
           '<td>' + escapeHtml(p.profileEntryCount) + '</td>' +
           '<td>' + escapeHtml(p.messageCount) + '</td></tr>';
@@ -1037,6 +1037,11 @@ function buildHtml(): string {
       var qaLogId = target.dataset.viewQaLog;
       if (qaLogId) {
         void showQaLogDetail(qaLogId);
+        return;
+      }
+      var personId = target.dataset.viewPerson || target.closest('[data-view-person]')?.dataset.viewPerson;
+      if (personId) {
+        void showPersonProfile(personId);
         return;
       }
       var id = target.dataset.deleteCronJob;
