@@ -12,6 +12,7 @@ import type {
   ResolvePersonInput,
   UpsertProfileEntryInput,
 } from "./types.js";
+import type { MessageSearchResult } from "../messages/types.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -361,6 +362,114 @@ export class ProfileRepository {
         input.finishedAt,
       );
     return id;
+  }
+
+
+  searchPersonMessages(personId: string, query: string, limit: number, options: { excludeMessageIds?: string[] } = {}): MessageSearchResult[] {
+    const cleaned = query
+      .trim()
+      .split(/\s+/)
+      .map((term) => term.replace(/"/g, '""'))
+      .filter(Boolean);
+    const wrapped = cleaned.map((term) => `"${term}"`).join(" ");
+    if (!wrapped) {
+      return [];
+    }
+
+    const excludedIds = options.excludeMessageIds ?? [];
+    const excludedWhere = excludedIds.length > 0 ? `AND fts.message_id NOT IN (${excludedIds.map(() => "?").join(", ")})` : "";
+    const rows = this.database
+      .prepare(
+        `
+        SELECT
+          fts.chunk_id AS chunkId,
+          fts.message_id AS messageId,
+          m.platform AS platform,
+          mc.text AS text,
+          bm25(message_chunks_fts) * -1 AS score,
+          m.message_type AS messageType,
+          c.name AS chatName,
+          m.sender_id AS senderId,
+          m.sender_name AS senderName,
+          m.person_id AS personId,
+          m.sent_at AS sentAt,
+          mc.chunk_index AS chunkIndex
+        FROM message_chunks_fts fts
+        JOIN message_chunks mc ON mc.id = fts.chunk_id
+        JOIN messages m ON m.id = fts.message_id
+        JOIN chats c ON c.id = m.chat_id
+        WHERE message_chunks_fts MATCH ?
+        ${excludedWhere}
+        AND m.person_id = ?
+        ORDER BY bm25(message_chunks_fts), m.sent_at DESC, mc.chunk_index ASC
+        LIMIT ?
+      `,
+      )
+      .all(wrapped, ...excludedIds, personId, Math.max(limit * 8, limit)) as Array<MessageSearchResult & { chunkIndex: number }>;
+
+    const results: MessageSearchResult[] = [];
+    const seenMessageIds = new Set<string>();
+    for (const row of rows) {
+      if (seenMessageIds.has(row.messageId)) {
+        continue;
+      }
+      seenMessageIds.add(row.messageId);
+      const { chunkIndex: _chunkIndex, ...result } = row;
+      results.push(result);
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    if (results.length > 0) {
+      return results;
+    }
+
+    const terms = query
+      .split(/[ 　]+/)
+      .map((term) => term.trim())
+      .filter((term) => term.length > 0);
+    if (terms.length === 0) {
+      return [];
+    }
+
+    const where = terms.map(() => "mc.text LIKE ? ESCAPE '\\'").join(" OR ");
+    const params = terms.map((term) => `%${term.replace(/[%_]/g, "\\$&")}%`);
+    const likeExcludedWhere =
+      excludedIds.length > 0 ? `AND m.id NOT IN (${excludedIds.map(() => "?").join(", ")})` : "";
+
+    return this.database
+      .prepare(
+        `
+        SELECT
+          *
+        FROM (
+          SELECT
+            mc.id AS chunkId,
+            m.id AS messageId,
+            m.platform AS platform,
+            mc.text AS text,
+            0.1 AS score,
+            m.message_type AS messageType,
+            c.name AS chatName,
+            m.sender_id AS senderId,
+            m.sender_name AS senderName,
+            m.person_id AS personId,
+            m.sent_at AS sentAt,
+            ROW_NUMBER() OVER (PARTITION BY m.id ORDER BY mc.chunk_index ASC) AS rowNumber
+          FROM message_chunks mc
+          JOIN messages m ON m.id = mc.message_id
+          JOIN chats c ON c.id = m.chat_id
+          WHERE (${where})
+          ${likeExcludedWhere}
+          AND m.person_id = ?
+        ) ranked
+        WHERE rowNumber = 1
+        ORDER BY sentAt DESC
+        LIMIT ?
+      `,
+      )
+      .all(...params, ...excludedIds, personId, limit) as MessageSearchResult[];
   }
 
   personExists(personId: string): boolean {

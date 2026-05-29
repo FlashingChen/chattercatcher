@@ -4,20 +4,21 @@ import type { EvidenceBlock } from "./types.js";
 import type { Retriever, RetrievalScope } from "./retriever.js";
 
 function toEvidenceSource(result: MessageSearchResult): EvidenceBlock["source"] {
-  if (result.messageType === "file") {
-    return {
-      type: "file",
-      label: result.senderName,
-      timestamp: result.sentAt,
-    };
-  }
-
-  return {
-    type: "message",
-    label: result.chatName,
-    sender: result.senderName,
+  const source: EvidenceBlock["source"] = {
+    type: result.messageType === "file" ? "file" : "message",
+    label: result.messageType === "file" ? result.senderName : result.chatName,
     timestamp: result.sentAt,
   };
+
+  if (result.messageType !== "file") {
+    source.sender = result.senderName;
+  }
+
+  if (result.personId) {
+    source.personId = result.personId;
+  }
+
+  return source;
 }
 
 export class MessageFtsRetriever implements Retriever {

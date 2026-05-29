@@ -1,6 +1,7 @@
-export type SourceType = "message" | "episode" | "file" | "image" | "audio" | "link" | "feishu_doc";
+export type SourceType = "message" | "episode" | "file" | "image" | "audio" | "link" | "feishu_doc" | "person_profile";
 
 export interface EvidenceSource {
+  personId?: string;
   type: SourceType;
   label: string;
   timestamp?: string;
