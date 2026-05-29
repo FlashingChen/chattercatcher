@@ -12,6 +12,34 @@ function createDb(): Database.Database {
 }
 
 describe("ProfileRepository", () => {
+  test("migrateDatabase can run repeatedly without changing person tables", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+
+    migrateDatabase(db);
+    migrateDatabase(db);
+
+    const personTables = db
+      .prepare(
+        `
+          SELECT name
+          FROM sqlite_master
+          WHERE type = 'table' AND name IN ('persons', 'person_identities', 'person_profile_entries', 'person_profile_evidence', 'profile_dream_state', 'profile_dream_runs')
+          ORDER BY name ASC
+        `,
+      )
+      .all() as Array<{ name: string }>;
+
+    expect(personTables.map((row) => row.name)).toEqual([
+      "person_identities",
+      "person_profile_entries",
+      "person_profile_evidence",
+      "persons",
+      "profile_dream_runs",
+      "profile_dream_state",
+    ]);
+  });
+
   test("resolves the same chat sender to one stable person and updates primary name", () => {
     const profiles = new ProfileRepository(createDb());
 
@@ -35,6 +63,53 @@ describe("ProfileRepository", () => {
     expect(second.id).toBe(first.id);
     expect(second.primaryName).toBe("王医生");
     expect(profiles.listPersons()[0]).toMatchObject({ id: first.id, primaryName: "王医生" });
+  });
+
+  test("re-resolving the same sender never throws and always returns the same person", () => {
+    const db = createDb();
+    const profiles = new ProfileRepository(db);
+
+    const first = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+
+    expect(() =>
+      profiles.resolvePersonForSender({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        senderId: "ou_123",
+        senderName: "小王",
+        source: "message",
+        observedAt: "2026-05-29T00:00:00.000Z",
+      }),
+    ).not.toThrow();
+
+    const second = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+
+    const counts = db
+      .prepare(
+        `
+          SELECT
+            (SELECT COUNT(*) FROM persons) AS personCount,
+            (SELECT COUNT(*) FROM person_identities) AS identityCount
+        `,
+      )
+      .get() as { personCount: number; identityCount: number };
+
+    expect(second.id).toBe(first.id);
+    expect(counts).toEqual({ personCount: 1, identityCount: 1 });
   });
 
   test("returns identities in person profile and reflects latest display name", () => {
@@ -171,7 +246,46 @@ describe("ProfileRepository", () => {
     });
   });
 
-  test("backfill respects limit", () => {
+  test("backfill respects limit and processes oldest messages first", () => {
+    const db = createDb();
+    const messages = new MessageRepository(db);
+    const profiles = new ProfileRepository(db);
+
+    const firstMessageId = messages.ingest({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      chatName: "家庭群",
+      platformMessageId: "msg-1",
+      senderId: "ou_123",
+      senderName: "小王",
+      messageType: "text",
+      text: "第一条",
+      sentAt: "2026-05-29T00:01:00.000Z",
+    });
+    const secondMessageId = messages.ingest({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      chatName: "家庭群",
+      platformMessageId: "msg-2",
+      senderId: "ou_124",
+      senderName: "小李",
+      messageType: "text",
+      text: "第二条",
+      sentAt: "2026-05-29T00:02:00.000Z",
+    });
+
+    const result = profiles.backfillMessagePersons({ limit: 1 });
+    const rows = db
+      .prepare("SELECT id, person_id AS personId FROM messages ORDER BY sent_at ASC")
+      .all() as Array<{ id: string; personId: string | null }>;
+    expect(result.updatedMessages).toBe(1);
+    expect(rows).toEqual([
+      { id: firstMessageId, personId: expect.stringMatching(/^person_/) },
+      { id: secondMessageId, personId: null },
+    ]);
+  });
+
+  test("backfill uses one transaction per batch to avoid partial commits", () => {
     const db = createDb();
     const messages = new MessageRepository(db);
     const profiles = new ProfileRepository(db);
@@ -199,9 +313,31 @@ describe("ProfileRepository", () => {
       sentAt: "2026-05-29T00:02:00.000Z",
     });
 
-    const result = profiles.backfillMessagePersons({ limit: 1 });
-    const count = (db.prepare("SELECT COUNT(*) AS count FROM messages WHERE person_id IS NOT NULL").get() as { count: number }).count;
-    expect(result.updatedMessages).toBe(1);
-    expect(count).toBe(1);
+    const originalUpdate = db.prepare("UPDATE messages SET person_id = ? WHERE id = ?");
+    let updateCount = 0;
+    const failingUpdate = {
+      run(personId: string, messageId: string) {
+        updateCount += 1;
+        if (updateCount === 2) {
+          throw new Error("boom");
+        }
+        return originalUpdate.run(personId, messageId);
+      },
+    };
+
+    const originalPrepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      if (sql === "UPDATE messages SET person_id = ? WHERE id = ?") {
+        return failingUpdate as never;
+      }
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    expect(() => profiles.backfillMessagePersons({ limit: 2 })).toThrow("boom");
+
+    const rows = db
+      .prepare("SELECT person_id AS personId FROM messages ORDER BY sent_at ASC")
+      .all() as Array<{ personId: string | null }>;
+    expect(rows).toEqual([{ personId: null }, { personId: null }]);
   });
 });

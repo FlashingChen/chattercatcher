@@ -39,25 +39,43 @@ export class ProfileRepository {
 
   resolvePersonForSender(input: ResolvePersonInput): PersonRecord {
     const observedAt = input.observedAt ?? nowIso();
-    const existing = this.database
-      .prepare(
-        `
-        SELECT
-          p.id AS id,
-          p.primary_name AS primaryName,
-          p.notes AS notes,
-          p.created_at AS createdAt,
-          p.updated_at AS updatedAt
-        FROM person_identities pi
-        JOIN persons p ON p.id = pi.person_id
-        WHERE pi.platform = ? AND pi.platform_chat_id = ? AND pi.external_user_id = ?
+    const personId = createId("person", [input.platform, input.platformChatId, input.senderId]);
+    const identityId = createId("identity", [input.platform, input.platformChatId, input.senderId]);
+    const findPerson = this.database.prepare(
+      `
+        SELECT id, primary_name AS primaryName, notes, created_at AS createdAt, updated_at AS updatedAt
+        FROM persons
+        WHERE id = ?
       `,
-      )
-      .get(input.platform, input.platformChatId, input.senderId) as
-      | { id: string; primaryName: string; notes: string | null; createdAt: string; updatedAt: string }
-      | undefined;
+    );
 
-    if (existing) {
+    const transaction = this.database.transaction(() => {
+      this.database
+        .prepare(
+          `
+          INSERT INTO persons (id, primary_name, notes, created_at, updated_at)
+          VALUES (?, ?, NULL, ?, ?)
+          ON CONFLICT(id) DO NOTHING
+        `,
+        )
+        .run(personId, input.senderName, observedAt, observedAt);
+
+      this.database
+        .prepare(
+          `
+          INSERT INTO person_identities (
+            id, person_id, platform, platform_chat_id, external_user_id, external_open_id,
+            external_union_id, external_user_id_raw, display_name, alias, source, first_seen_at, last_seen_at
+          ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, ?, ?)
+          ON CONFLICT(platform, platform_chat_id, external_user_id)
+          DO UPDATE SET
+            display_name = excluded.display_name,
+            source = excluded.source,
+            last_seen_at = excluded.last_seen_at
+        `,
+        )
+        .run(identityId, personId, input.platform, input.platformChatId, input.senderId, input.senderId, input.senderName, input.source, observedAt, observedAt);
+
       this.database
         .prepare(
           `
@@ -66,58 +84,12 @@ export class ProfileRepository {
           WHERE id = ?
         `,
         )
-        .run(input.senderName, observedAt, existing.id);
-      this.database
-        .prepare(
-          `
-          UPDATE person_identities
-          SET display_name = ?, source = ?, last_seen_at = ?
-          WHERE platform = ? AND platform_chat_id = ? AND external_user_id = ?
-        `,
-        )
-        .run(input.senderName, input.source, observedAt, input.platform, input.platformChatId, input.senderId);
+        .run(input.senderName, observedAt, personId);
 
-      return this.database
-        .prepare(
-          `
-          SELECT id, primary_name AS primaryName, notes, created_at AS createdAt, updated_at AS updatedAt
-          FROM persons
-          WHERE id = ?
-        `,
-        )
-        .get(existing.id) as PersonRecord;
-    }
+      return findPerson.get(personId) as PersonRecord;
+    });
 
-    const personId = createId("person", [input.platform, input.platformChatId, input.senderId]);
-    const identityId = createId("identity", [input.platform, input.platformChatId, input.senderId]);
-    this.database
-      .prepare(
-        `
-        INSERT INTO persons (id, primary_name, notes, created_at, updated_at)
-        VALUES (?, ?, NULL, ?, ?)
-      `,
-      )
-      .run(personId, input.senderName, observedAt, observedAt);
-    this.database
-      .prepare(
-        `
-        INSERT INTO person_identities (
-          id, person_id, platform, platform_chat_id, external_user_id, external_open_id,
-          external_union_id, external_user_id_raw, display_name, alias, source, first_seen_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, ?, ?)
-      `,
-      )
-      .run(identityId, personId, input.platform, input.platformChatId, input.senderId, input.senderId, input.senderName, input.source, observedAt, observedAt);
-
-    return this.database
-      .prepare(
-        `
-        SELECT id, primary_name AS primaryName, notes, created_at AS createdAt, updated_at AS updatedAt
-        FROM persons
-        WHERE id = ?
-      `,
-      )
-      .get(personId) as PersonRecord;
+    return transaction();
   }
 
   listPersons(): PersonRecord[] {
@@ -257,18 +229,21 @@ export class ProfileRepository {
       .all(limit) as Array<{ id: string; platform: string; platformChatId: string; senderId: string; senderName: string; sentAt: string }>;
 
     const update = this.database.prepare("UPDATE messages SET person_id = ? WHERE id = ?");
-    for (const row of rows) {
-      const person = this.resolvePersonForSender({
-        platform: row.platform,
-        platformChatId: row.platformChatId,
-        senderId: row.senderId,
-        senderName: row.senderName,
-        source: "inferred",
-        observedAt: row.sentAt,
-      });
-      update.run(person.id, row.id);
-    }
+    const transaction = this.database.transaction(() => {
+      for (const row of rows) {
+        const person = this.resolvePersonForSender({
+          platform: row.platform,
+          platformChatId: row.platformChatId,
+          senderId: row.senderId,
+          senderName: row.senderName,
+          source: "inferred",
+          observedAt: row.sentAt,
+        });
+        update.run(person.id, row.id);
+      }
+    });
 
+    transaction();
     return { updatedMessages: rows.length };
   }
 

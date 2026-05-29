@@ -332,4 +332,98 @@ describe("message repository", () => {
       database.close();
     }
   });
+  it("FTS search deduplicates multi-chunk messages and keeps best relevance before recency", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const messages = new MessageRepository(database);
+      const profiles = new ProfileRepository(database);
+      const person = profiles.resolvePersonForSender({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        senderId: "ou_123",
+        senderName: "小王",
+        source: "message",
+        observedAt: "2026-05-29T00:00:00.000Z",
+      });
+
+      const relevantMessageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        chatName: "家庭群",
+        platformMessageId: "relevant-1",
+        senderId: "ou_123",
+        senderName: "小王",
+        personId: person.id,
+        messageType: "text",
+        text: ["苹果 苹果 苹果 苹果 苹果", ...Array.from({ length: 80 }, (_, index) => `补充说明-${index}`)].join("\n"),
+        sentAt: "2026-05-29T00:01:00.000Z",
+      });
+      const recentMessageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        chatName: "家庭群",
+        platformMessageId: "recent-1",
+        senderId: "ou_123",
+        senderName: "小王",
+        personId: person.id,
+        messageType: "text",
+        text: "苹果",
+        sentAt: "2026-05-29T00:02:00.000Z",
+      });
+
+      const results = messages.searchMessages("苹果", 8, { scope: { personId: person.id } });
+
+      expect(results.map((result) => result.messageId)).toEqual([recentMessageId, relevantMessageId]);
+      expect(new Set(results.map((result) => result.messageId)).size).toBe(results.length);
+      expect(results[0]).toMatchObject({ senderId: "ou_123", personId: person.id });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("LIKE fallback deduplicates multi-chunk messages and keeps sender/person fields", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const messages = new MessageRepository(database);
+      const profiles = new ProfileRepository(database);
+      const person = profiles.resolvePersonForSender({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        senderId: "ou_123",
+        senderName: "小王",
+        source: "message",
+        observedAt: "2026-05-29T00:00:00.000Z",
+      });
+
+      const messageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        chatName: "家庭群",
+        platformMessageId: "like-1",
+        senderId: "ou_123",
+        senderName: "小王",
+        personId: person.id,
+        messageType: "text",
+        text: Array.from({ length: 120 }, () => "独特词").join("\n"),
+        sentAt: "2026-05-29T00:03:00.000Z",
+      });
+
+      database.prepare("DELETE FROM message_chunks_fts WHERE message_id = ?").run(messageId);
+
+      const results = messages.searchMessages("独特词", 8, { scope: { personId: person.id } });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        messageId,
+        senderId: "ou_123",
+        personId: person.id,
+      });
+    } finally {
+      database.close();
+    }
+  });
 });

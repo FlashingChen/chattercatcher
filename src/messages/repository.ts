@@ -339,39 +339,48 @@ export class MessageRepository {
     const excludedIds = options.excludeMessageIds ?? [];
     const excludedWhere = excludedIds.length > 0 ? `AND fts.message_id NOT IN (${excludedIds.map(() => "?").join(", ")})` : "";
     const scope = buildScopeWhere(options.scope);
-    const ftsResults = this.database
+    const ftsRows = this.database
       .prepare(
         `
         SELECT
-          *
-        FROM (
-          SELECT
-            fts.chunk_id AS chunkId,
-            fts.message_id AS messageId,
-            m.platform AS platform,
-            mc.text AS text,
-            1.0 AS score,
-            m.message_type AS messageType,
-            c.name AS chatName,
-            m.sender_id AS senderId,
-            m.sender_name AS senderName,
-            m.person_id AS personId,
-            m.sent_at AS sentAt,
-            ROW_NUMBER() OVER (PARTITION BY fts.message_id ORDER BY mc.chunk_index ASC) AS rowNumber
-          FROM message_chunks_fts fts
-          JOIN message_chunks mc ON mc.id = fts.chunk_id
-          JOIN messages m ON m.id = fts.message_id
-          JOIN chats c ON c.id = m.chat_id
-          WHERE message_chunks_fts MATCH ?
-          ${excludedWhere}
-          ${scope.where}
-        ) ranked
-        WHERE rowNumber = 1
-        ORDER BY sentAt DESC
+          fts.chunk_id AS chunkId,
+          fts.message_id AS messageId,
+          m.platform AS platform,
+          mc.text AS text,
+          bm25(message_chunks_fts) * -1 AS score,
+          m.message_type AS messageType,
+          c.name AS chatName,
+          m.sender_id AS senderId,
+          m.sender_name AS senderName,
+          m.person_id AS personId,
+          m.sent_at AS sentAt,
+          mc.chunk_index AS chunkIndex
+        FROM message_chunks_fts fts
+        JOIN message_chunks mc ON mc.id = fts.chunk_id
+        JOIN messages m ON m.id = fts.message_id
+        JOIN chats c ON c.id = m.chat_id
+        WHERE message_chunks_fts MATCH ?
+        ${excludedWhere}
+        ${scope.where}
+        ORDER BY bm25(message_chunks_fts), m.sent_at DESC, mc.chunk_index ASC
         LIMIT ?
       `,
       )
-      .all(ftsQuery, ...excludedIds, ...scope.params, limit) as MessageSearchResult[];
+      .all(ftsQuery, ...excludedIds, ...scope.params, Math.max(limit * 8, limit)) as Array<MessageSearchResult & { chunkIndex: number }>;
+
+    const ftsResults: MessageSearchResult[] = [];
+    const seenMessageIds = new Set<string>();
+    for (const row of ftsRows) {
+      if (seenMessageIds.has(row.messageId)) {
+        continue;
+      }
+      seenMessageIds.add(row.messageId);
+      const { chunkIndex: _chunkIndex, ...result } = row;
+      ftsResults.push(result);
+      if (ftsResults.length >= limit) {
+        break;
+      }
+    }
 
     if (ftsResults.length > 0) {
       return ftsResults;
@@ -391,24 +400,30 @@ export class MessageRepository {
       .prepare(
         `
         SELECT
-          mc.id AS chunkId,
-          m.id AS messageId,
-          m.platform AS platform,
-          mc.text AS text,
-          0.1 AS score,
-          m.message_type AS messageType,
-          c.name AS chatName,
-          m.sender_id AS senderId,
-          m.sender_name AS senderName,
-          m.person_id AS personId,
-          m.sent_at AS sentAt
-        FROM message_chunks mc
-        JOIN messages m ON m.id = mc.message_id
-        JOIN chats c ON c.id = m.chat_id
-        WHERE (${where})
-        ${likeExcludedWhere}
-        ${scope.where}
-        ORDER BY m.sent_at DESC
+          *
+        FROM (
+          SELECT
+            mc.id AS chunkId,
+            m.id AS messageId,
+            m.platform AS platform,
+            mc.text AS text,
+            0.1 AS score,
+            m.message_type AS messageType,
+            c.name AS chatName,
+            m.sender_id AS senderId,
+            m.sender_name AS senderName,
+            m.person_id AS personId,
+            m.sent_at AS sentAt,
+            ROW_NUMBER() OVER (PARTITION BY m.id ORDER BY mc.chunk_index ASC) AS rowNumber
+          FROM message_chunks mc
+          JOIN messages m ON m.id = mc.message_id
+          JOIN chats c ON c.id = m.chat_id
+          WHERE (${where})
+          ${likeExcludedWhere}
+          ${scope.where}
+        ) ranked
+        WHERE rowNumber = 1
+        ORDER BY sentAt DESC
         LIMIT ?
       `,
       )
