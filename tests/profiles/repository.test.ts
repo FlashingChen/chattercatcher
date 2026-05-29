@@ -37,6 +37,41 @@ describe("ProfileRepository", () => {
     expect(profiles.listPersons()[0]).toMatchObject({ id: first.id, primaryName: "王医生" });
   });
 
+  test("returns identities in person profile and reflects latest display name", () => {
+    const profiles = new ProfileRepository(createDb());
+
+    const person = profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "小王",
+      source: "message",
+      observedAt: "2026-05-29T00:00:00.000Z",
+    });
+    profiles.resolvePersonForSender({
+      platform: "feishu",
+      platformChatId: "chat-a",
+      senderId: "ou_123",
+      senderName: "王医生",
+      source: "feishu_member",
+      observedAt: "2026-05-29T00:01:00.000Z",
+    });
+
+    const profile = profiles.getPersonProfile(person.id, { includeEvidence: true, includeInferred: true });
+
+    expect(profile?.identities).toEqual([
+      expect.objectContaining({
+        platform: "feishu",
+        platformChatId: "chat-a",
+        externalUserId: "ou_123",
+        displayName: "王医生",
+        source: "feishu_member",
+        firstSeenAt: "2026-05-29T00:00:00.000Z",
+        lastSeenAt: "2026-05-29T00:01:00.000Z",
+      }),
+    ]);
+  });
+
   test("stores profile entries with evidence and supports includeEvidence/includeInferred", () => {
     const db = createDb();
     const messages = new MessageRepository(db);

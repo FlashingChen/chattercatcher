@@ -56,8 +56,20 @@ export interface ProfileEntryRecord {
   evidence?: ProfileEvidenceRecord[];
 }
 
+export interface PersonIdentityRecord {
+  platform: string;
+  platformChatId: string;
+  externalUserId: string;
+  displayName: string;
+  alias?: string;
+  source: PersonIdentitySource;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
 export interface PersonProfile {
   person: PersonRecord;
+  identities: PersonIdentityRecord[];
   entries: ProfileEntryRecord[];
 }
 

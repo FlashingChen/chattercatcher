@@ -5,6 +5,7 @@ import type {
   PersonRecord,
   ProfileEntryRecord,
   ProfileEvidenceRecord,
+  PersonIdentityRecord,
   ResolvePersonInput,
   UpsertProfileEntryInput,
 } from "./types.js";
@@ -176,8 +177,28 @@ export class ProfileRepository {
       ? entryRows.map((entry) => ({ ...entry, evidence: this.getEvidence(entry.id) }))
       : entryRows;
 
+    const identities = this.database
+      .prepare(
+        `
+        SELECT
+          platform,
+          platform_chat_id AS platformChatId,
+          external_user_id AS externalUserId,
+          display_name AS displayName,
+          alias,
+          source,
+          first_seen_at AS firstSeenAt,
+          last_seen_at AS lastSeenAt
+        FROM person_identities
+        WHERE person_id = ?
+        ORDER BY last_seen_at DESC, first_seen_at DESC
+      `,
+      )
+      .all(personId) as PersonIdentityRecord[];
+
     return {
       person: mapPerson(personRow),
+      identities,
       entries,
     };
   }
