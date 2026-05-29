@@ -31,6 +31,7 @@ import { createMultimodalModel } from "./multimodal/openai-compatible.js";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
+import { ProfileRepository } from "./profiles/repository.js";
 import { indexMessageChunks } from "./rag/indexer.js";
 import { createHybridRetriever, hasEmbeddingConfig } from "./rag/factory.js";
 import { processMessagesNow } from "./rag/manual-index.js";
@@ -276,7 +277,7 @@ async function startGatewayForegroundCommand(): Promise<void> {
   const gatewayRuntime = createFeishuGateway({
     config,
     secrets,
-    ingestor: new GatewayIngestor(database),
+    ingestor: new GatewayIngestor(database, { profiles: new ProfileRepository(database) }),
     resourceDownloader: FeishuResourceDownloader.fromConfig(config, secrets),
     attachmentVectorIndexer: vectorStore
       ? (messageId) =>
@@ -388,6 +389,51 @@ const web = program.command("web").description("管理本地 Web UI");
 web.command("start").description("启动本地 Web UI").action(async () => {
   const config = await loadConfig();
   await startWebServer(config, { version: packageJson.version });
+});
+
+const profilesCommand = program.command("profiles").description("查看和维护个人档案");
+
+profilesCommand.command("list").description("列出个人档案").action(async () => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    for (const person of profiles.listPersons()) {
+      console.log(`${person.id}\t${person.primaryName}\t${person.updatedAt}`);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+profilesCommand.command("show").argument("personId").description("查看个人档案").action(async (personId: string) => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    const profile = profiles.getPersonProfile(personId, { includeEvidence: true, includeInferred: true });
+    if (!profile) {
+      console.error("未找到个人档案。");
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(profile, null, 2));
+  } finally {
+    database.close();
+  }
+});
+
+profilesCommand.command("backfill").description("为历史消息回填个人档案关联").option("--limit <number>", "最多回填消息数", "1000").action(async (options: { limit: string }) => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    const limit = Number(options.limit);
+    const result = profiles.backfillMessagePersons({ limit: Number.isFinite(limit) ? limit : 1000 });
+    console.log(`已回填 ${result.updatedMessages} 条消息。`);
+  } finally {
+    database.close();
+  }
 });
 
 const data = program.command("data").description("管理本地知识库数据");
@@ -799,7 +845,7 @@ dev
     try {
       const raw = await fs.readFile(options.file, "utf8");
       const payload = JSON.parse(raw) as FeishuReceiveMessageEvent;
-      const result = new GatewayIngestor(database).ingestFeishuEvent(payload);
+      const result = new GatewayIngestor(database, { profiles: new ProfileRepository(database) }).ingestFeishuEvent(payload);
 
       if (!result.accepted) {
         console.log(result.reason);
