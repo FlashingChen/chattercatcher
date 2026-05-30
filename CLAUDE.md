@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 必须阅读并遵守 `AGENTS.md`；项目使命、RAG 原则、产品约束、开发流程、安全隐私和交付流程以 `AGENTS.md` 为准。
 - 项目文档、spec、plan 默认使用中文。
+- 面向用户的汇报、PR 标题、PR 描述、review 结论和发布说明默认使用中文。
 - 不要重写或丢弃用户已有改动，除非用户明确要求。
 - 必须遵守 superpowers 规范，包括 brainstorming、planning、TDD、verification、code review 等适用流程。
 - 当用户明确要求"直接做""直接改""别问""按我说的做"或等价表达时，必须 100% 按用户指令直接执行，不再追问、不再强行展开形式化流程。
