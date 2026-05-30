@@ -54,6 +54,7 @@ export async function createAgenticRagSearchTools(input: {
   messages: MessageRepository;
   excludeMessageIds?: string[];
   scope?: MessageSearchScope;
+  profileTools?: RagSearchTool[];
 }): Promise<{ tools: RagSearchTool[]; close: () => void }> {
   const episodes = new EpisodeFtsRetriever(new EpisodeRepository(input.database));
   const messages = new MessageFtsRetriever(input.messages, { excludeMessageIds: input.excludeMessageIds });
@@ -65,8 +66,14 @@ export async function createAgenticRagSearchTools(input: {
     : undefined;
   const hybrid = new HybridRetriever(semantic ? [episodes, messages, semantic] : [episodes, messages]);
 
+  const tools = createRagSearchTools({ hybrid, messages, episodes, semantic, scope: input.scope });
+
+  if (input.profileTools && input.profileTools.length > 0) {
+    tools.push(...input.profileTools);
+  }
+
   return {
-    tools: createRagSearchTools({ hybrid, messages, episodes, semantic, scope: input.scope }),
+    tools,
     close: () => {},
   };
 }

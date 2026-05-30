@@ -8,7 +8,9 @@ interface SearchRow {
   chunkId: string;
   text: string;
   chatName: string;
+  senderId: string;
   senderName: string;
+  personId?: string;
   sentAt: string;
   embeddingJson: string;
 }
@@ -27,6 +29,9 @@ function toEvidenceSource(row: SearchRow): EvidenceSource {
     type: "message",
     label: row.chatName,
     sender: row.senderName,
+    senderId: row.senderId,
+    personId: row.personId,
+    profileAvailable: Boolean(row.personId),
     timestamp: row.sentAt,
   };
 }
@@ -41,6 +46,10 @@ function buildScopeWhere(scope?: MessageSearchScope): { where: string; params: s
   if (scope?.platformChatId) {
     clauses.push("c.platform_chat_id = ?");
     params.push(scope.platformChatId);
+  }
+  if (scope?.personId) {
+    clauses.push("m.person_id = ?");
+    params.push(scope.personId);
   }
 
   return {
@@ -99,7 +108,9 @@ export class SqliteVectorStore implements VectorStore {
           mc.id AS chunkId,
           mc.text AS text,
           c.name AS chatName,
+          m.sender_id AS senderId,
           m.sender_name AS senderName,
+          m.person_id AS personId,
           m.sent_at AS sentAt,
           e.embedding_json AS embeddingJson
         FROM message_chunk_embeddings e

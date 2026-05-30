@@ -5,6 +5,8 @@ import { createCronJobTools } from "../cron/tools.js";
 import type { SqliteDatabase } from "../db/database.js";
 import { MessageRepository } from "../messages/repository.js";
 import { createAgenticRagSearchTools } from "../rag/factory.js";
+import { createPersonProfileTools } from "../profiles/rag-tools.js";
+import { ProfileRepository } from "../profiles/repository.js";
 import { QaLogRepository } from "../rag/qa-logs.js";
 import type { QaTrace } from "../rag/qa-trace.js";
 import type { RagSearchTool } from "../rag/search-tools.js";
@@ -396,6 +398,7 @@ export class FeishuQuestionHandler {
       database: this.options.database,
       messages: new MessageRepository(this.options.database),
       excludeMessageIds: options.excludeMessageIds,
+      profileTools: createPersonProfileTools({ profiles: new ProfileRepository(this.options.database) }),
     });
 
     try {

@@ -14,6 +14,7 @@ export interface MessageRecord {
   chatId: string;
   senderId: string;
   senderName: string;
+  personId?: string;
   messageType: string;
   text: string;
   rawPayloadJson: string;
@@ -41,6 +42,7 @@ export interface IngestMessageInput {
   platformMessageId: string;
   senderId: string;
   senderName: string;
+  personId?: string;
   messageType: string;
   text: string;
   rawPayload?: unknown;
@@ -60,6 +62,7 @@ export interface CreateImageSummaryMessageInput {
 export interface MessageSearchScope {
   platform?: string;
   platformChatId?: string;
+  personId?: string;
 }
 
 export interface MessageSearchResult {
@@ -70,6 +73,8 @@ export interface MessageSearchResult {
   score: number;
   messageType: string;
   chatName: string;
+  senderId: string;
   senderName: string;
+  personId?: string;
   sentAt: string;
 }

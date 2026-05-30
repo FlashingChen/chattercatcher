@@ -23,7 +23,8 @@
     "docs/PRD.md",
     "docs/TECHNICAL_ARCHITECTURE.md",
     "README.md",
-    "AGENTS.md"
+    "AGENTS.md",
+    "CHANGELOG.md"
   ],
   "directories": {
     "doc": "docs"

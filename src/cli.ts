@@ -31,6 +31,8 @@ import { createMultimodalModel } from "./multimodal/openai-compatible.js";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
+import { ProfileDreamProcessor } from "./profiles/dream.js";
+import { ProfileRepository } from "./profiles/repository.js";
 import { indexMessageChunks } from "./rag/indexer.js";
 import { createHybridRetriever, hasEmbeddingConfig } from "./rag/factory.js";
 import { processMessagesNow } from "./rag/manual-index.js";
@@ -276,7 +278,7 @@ async function startGatewayForegroundCommand(): Promise<void> {
   const gatewayRuntime = createFeishuGateway({
     config,
     secrets,
-    ingestor: new GatewayIngestor(database),
+    ingestor: new GatewayIngestor(database, { profiles: new ProfileRepository(database) }),
     resourceDownloader: FeishuResourceDownloader.fromConfig(config, secrets),
     attachmentVectorIndexer: vectorStore
       ? (messageId) =>
@@ -388,6 +390,51 @@ const web = program.command("web").description("管理本地 Web UI");
 web.command("start").description("启动本地 Web UI").action(async () => {
   const config = await loadConfig();
   await startWebServer(config, { version: packageJson.version });
+});
+
+const profilesCommand = program.command("profiles").description("查看和维护个人档案");
+
+profilesCommand.command("list").description("列出个人档案").action(async () => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    for (const person of profiles.listPersons()) {
+      console.log(`${person.id}\t${person.primaryName}\t${person.updatedAt}`);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+profilesCommand.command("show").argument("personId").description("查看个人档案").action(async (personId: string) => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    const profile = profiles.getPersonProfile(personId, { includeEvidence: true, includeInferred: true });
+    if (!profile) {
+      console.error("未找到个人档案。");
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(profile, null, 2));
+  } finally {
+    database.close();
+  }
+});
+
+profilesCommand.command("backfill").description("为历史消息回填个人档案关联").option("--limit <number>", "最多回填消息数", "1000").action(async (options: { limit: string }) => {
+  const config = await loadConfig();
+  const database = openDatabase(config);
+  try {
+    const profiles = new ProfileRepository(database);
+    const limit = Number(options.limit);
+    const result = profiles.backfillMessagePersons({ limit: Number.isFinite(limit) ? limit : 1000 });
+    console.log(`已回填 ${result.updatedMessages} 条消息。`);
+  } finally {
+    database.close();
+  }
 });
 
 const data = program.command("data").description("管理本地知识库数据");
@@ -564,6 +611,40 @@ processCommand
         model: createChatModel(config, secrets),
       });
       console.log(`会话记忆处理完成：episodes=${result.created}`);
+    } finally {
+      database.close();
+    }
+  });
+
+processCommand
+  .command("profiles")
+  .description("处理未总结消息并更新个人档案")
+  .option("--limit <number>", "每个群最多处理消息数", "100")
+  .action(async (options: { limit: string }) => {
+    const config = await loadConfig();
+    const secrets = await loadSecrets();
+    const database = openDatabase(config);
+    try {
+      const profiles = new ProfileRepository(database);
+      profiles.backfillMessagePersons({ limit: 10000 });
+      const processor = new ProfileDreamProcessor({ profiles, model: createChatModel(config, secrets) });
+      const chats = profiles.listChatsWithPendingDreamMessages();
+      let succeeded = 0;
+      let failed = 0;
+      let skipped = 0;
+      const limit = Number(options.limit);
+      for (const chat of chats) {
+        const result = await processor.processChat({
+          platform: chat.platform,
+          platformChatId: chat.platformChatId,
+          limit: Number.isFinite(limit) ? limit : 100,
+        });
+        if (result.status === "succeeded") succeeded += 1;
+        if (result.status === "failed") failed += 1;
+        if (result.status === "skipped") skipped += 1;
+        console.log(`${chat.platformChatId}: ${result.status}, messages=${result.processedMessageCount}, entries=${result.generatedEntryCount}${result.error ? `, error=${result.error}` : ""}`);
+      }
+      console.log(`个人档案处理完成：成功 ${succeeded}，失败 ${failed}，跳过 ${skipped}。`);
     } finally {
       database.close();
     }
@@ -799,7 +880,7 @@ dev
     try {
       const raw = await fs.readFile(options.file, "utf8");
       const payload = JSON.parse(raw) as FeishuReceiveMessageEvent;
-      const result = new GatewayIngestor(database).ingestFeishuEvent(payload);
+      const result = new GatewayIngestor(database, { profiles: new ProfileRepository(database) }).ingestFeishuEvent(payload);
 
       if (!result.accepted) {
         console.log(result.reason);

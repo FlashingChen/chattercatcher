@@ -40,6 +40,7 @@ export function migrateDatabase(database: SqliteDatabase): void {
       chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
       sender_id TEXT NOT NULL,
       sender_name TEXT NOT NULL,
+      person_id TEXT REFERENCES persons(id) ON DELETE SET NULL,
       message_type TEXT NOT NULL,
       text TEXT NOT NULL,
       raw_payload_json TEXT NOT NULL,
@@ -75,6 +76,80 @@ export function migrateDatabase(database: SqliteDatabase): void {
       ended_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       UNIQUE(chat_id, started_at, ended_at)
+    );
+
+    CREATE TABLE IF NOT EXISTS persons (
+      id TEXT PRIMARY KEY,
+      primary_name TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS person_identities (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      platform_chat_id TEXT NOT NULL,
+      external_user_id TEXT NOT NULL,
+      external_open_id TEXT,
+      external_union_id TEXT,
+      external_user_id_raw TEXT,
+      display_name TEXT NOT NULL,
+      alias TEXT,
+      source TEXT NOT NULL CHECK(source IN ('message','feishu_member','manual','inferred')),
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      UNIQUE(platform, platform_chat_id, external_user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS person_identities_person_idx ON person_identities(person_id);
+    CREATE INDEX IF NOT EXISTS person_identities_lookup_idx ON person_identities(platform, platform_chat_id, external_user_id);
+    CREATE INDEX IF NOT EXISTS person_identities_name_idx ON person_identities(display_name, alias);
+
+    CREATE TABLE IF NOT EXISTS person_profile_entries (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      content TEXT NOT NULL,
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('fact','inferred')),
+      confidence REAL NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('active','superseded','deleted')),
+      source TEXT NOT NULL CHECK(source IN ('dream','explicit_user_request','manual')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_observed_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS person_profile_entries_person_status_idx ON person_profile_entries(person_id, status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS person_profile_evidence (
+      entry_id TEXT NOT NULL REFERENCES person_profile_entries(id) ON DELETE CASCADE,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      quote TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      PRIMARY KEY (entry_id, message_id, quote)
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_dream_state (
+      platform TEXT NOT NULL,
+      platform_chat_id TEXT NOT NULL,
+      last_message_id TEXT,
+      last_message_sent_at TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (platform, platform_chat_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_dream_runs (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      platform_chat_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('succeeded','failed','skipped')),
+      processed_message_count INTEGER NOT NULL,
+      generated_entry_count INTEGER NOT NULL,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS memory_episode_messages (
@@ -204,6 +279,12 @@ export function migrateDatabase(database: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS feishu_chat_members_chat_name_idx
     ON feishu_chat_members(chat_id, user_name);
   `);
+
+  const messageColumns = database.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!messageColumns.some((column) => column.name === "person_id")) {
+    database.prepare("ALTER TABLE messages ADD COLUMN person_id TEXT REFERENCES persons(id) ON DELETE SET NULL").run();
+  }
+  database.prepare("CREATE INDEX IF NOT EXISTS messages_person_idx ON messages(person_id, sent_at)").run();
 
   const cronJobColumns = database.prepare("PRAGMA table_info(cron_jobs)").all() as Array<{ name: string }>;
   const ensureCronJobColumn = (name: string, definition: string): void => {

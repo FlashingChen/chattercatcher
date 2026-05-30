@@ -70,6 +70,10 @@ function buildScopeWhere(scope?: MessageSearchScope): { where: string; params: s
     clauses.push("c.platform_chat_id = ?");
     params.push(scope.platformChatId);
   }
+  if (scope?.personId) {
+    clauses.push("m.person_id = ?");
+    params.push(scope.personId);
+  }
 
   return {
     where: clauses.length > 0 ? `AND ${clauses.join(" AND ")}` : "",
@@ -120,14 +124,15 @@ export class MessageRepository {
           `
           INSERT INTO messages (
             id, platform, platform_message_id, chat_id, sender_id, sender_name,
-            message_type, text, raw_payload_json, sent_at, received_at, created_at
+            person_id, message_type, text, raw_payload_json, sent_at, received_at, created_at
           )
           VALUES (
             @id, @platform, @platformMessageId, @chatId, @senderId, @senderName,
-            @messageType, @text, @rawPayloadJson, @sentAt, @receivedAt, @createdAt
+            @personId, @messageType, @text, @rawPayloadJson, @sentAt, @receivedAt, @createdAt
           )
           ON CONFLICT(platform, platform_message_id)
           DO UPDATE SET
+            person_id = COALESCE(excluded.person_id, messages.person_id),
             message_type = excluded.message_type,
             text = excluded.text,
             raw_payload_json = excluded.raw_payload_json,
@@ -141,6 +146,7 @@ export class MessageRepository {
           chatId,
           senderId: input.senderId,
           senderName: input.senderName,
+          personId: input.personId ?? null,
           messageType: input.messageType,
           text: input.text,
           rawPayloadJson,
@@ -189,6 +195,7 @@ export class MessageRepository {
           m.chat_id AS chatId,
           m.sender_id AS senderId,
           m.sender_name AS senderName,
+          m.person_id AS personId,
           m.sent_at AS sentAt,
           c.platform_chat_id AS platformChatId,
           c.name AS chatName
@@ -204,6 +211,7 @@ export class MessageRepository {
           chatId: string;
           senderId: string;
           senderName: string;
+          personId: string | null;
           sentAt: string;
           platformChatId: string;
           chatName: string;
@@ -226,6 +234,7 @@ export class MessageRepository {
       platformMessageId: derivedPlatformMessageId,
       senderId: source.senderId,
       senderName: source.senderName,
+      personId: source.personId ?? undefined,
       messageType: "image_summary",
       text: summaryText,
       sentAt: source.sentAt,
@@ -254,7 +263,9 @@ export class MessageRepository {
           1.0 AS score,
           m.message_type AS messageType,
           c.name AS chatName,
+          m.sender_id AS senderId,
           m.sender_name AS senderName,
+          m.person_id AS personId,
           m.sent_at AS sentAt
         FROM message_chunks mc
         JOIN messages m ON m.id = mc.message_id
@@ -278,7 +289,9 @@ export class MessageRepository {
           1.0 AS score,
           m.message_type AS messageType,
           c.name AS chatName,
+          m.sender_id AS senderId,
           m.sender_name AS senderName,
+          m.person_id AS personId,
           m.sent_at AS sentAt
         FROM message_chunks mc
         JOIN messages m ON m.id = mc.message_id
@@ -306,7 +319,9 @@ export class MessageRepository {
           1.0 AS score,
           m.message_type AS messageType,
           c.name AS chatName,
+          m.sender_id AS senderId,
           m.sender_name AS senderName,
+          m.person_id AS personId,
           m.sent_at AS sentAt
         FROM message_chunks mc
         JOIN messages m ON m.id = mc.message_id
@@ -324,7 +339,7 @@ export class MessageRepository {
     const excludedIds = options.excludeMessageIds ?? [];
     const excludedWhere = excludedIds.length > 0 ? `AND fts.message_id NOT IN (${excludedIds.map(() => "?").join(", ")})` : "";
     const scope = buildScopeWhere(options.scope);
-    const ftsResults = this.database
+    const ftsRows = this.database
       .prepare(
         `
         SELECT
@@ -335,8 +350,11 @@ export class MessageRepository {
           bm25(message_chunks_fts) * -1 AS score,
           m.message_type AS messageType,
           c.name AS chatName,
+          m.sender_id AS senderId,
           m.sender_name AS senderName,
-          m.sent_at AS sentAt
+          m.person_id AS personId,
+          m.sent_at AS sentAt,
+          mc.chunk_index AS chunkIndex
         FROM message_chunks_fts fts
         JOIN message_chunks mc ON mc.id = fts.chunk_id
         JOIN messages m ON m.id = fts.message_id
@@ -344,11 +362,25 @@ export class MessageRepository {
         WHERE message_chunks_fts MATCH ?
         ${excludedWhere}
         ${scope.where}
-        ORDER BY bm25(message_chunks_fts)
+        ORDER BY bm25(message_chunks_fts), m.sent_at DESC, mc.chunk_index ASC
         LIMIT ?
       `,
       )
-      .all(ftsQuery, ...excludedIds, ...scope.params, limit) as MessageSearchResult[];
+      .all(ftsQuery, ...excludedIds, ...scope.params, Math.max(limit * 8, limit)) as Array<MessageSearchResult & { chunkIndex: number }>;
+
+    const ftsResults: MessageSearchResult[] = [];
+    const seenMessageIds = new Set<string>();
+    for (const row of ftsRows) {
+      if (seenMessageIds.has(row.messageId)) {
+        continue;
+      }
+      seenMessageIds.add(row.messageId);
+      const { chunkIndex: _chunkIndex, ...result } = row;
+      ftsResults.push(result);
+      if (ftsResults.length >= limit) {
+        break;
+      }
+    }
 
     if (ftsResults.length > 0) {
       return ftsResults;
@@ -368,22 +400,30 @@ export class MessageRepository {
       .prepare(
         `
         SELECT
-          mc.id AS chunkId,
-          m.id AS messageId,
-          m.platform AS platform,
-          mc.text AS text,
-          0.1 AS score,
-          m.message_type AS messageType,
-          c.name AS chatName,
-          m.sender_name AS senderName,
-          m.sent_at AS sentAt
-        FROM message_chunks mc
-        JOIN messages m ON m.id = mc.message_id
-        JOIN chats c ON c.id = m.chat_id
-        WHERE (${where})
-        ${likeExcludedWhere}
-        ${scope.where}
-        ORDER BY m.sent_at DESC
+          *
+        FROM (
+          SELECT
+            mc.id AS chunkId,
+            m.id AS messageId,
+            m.platform AS platform,
+            mc.text AS text,
+            0.1 AS score,
+            m.message_type AS messageType,
+            c.name AS chatName,
+            m.sender_id AS senderId,
+            m.sender_name AS senderName,
+            m.person_id AS personId,
+            m.sent_at AS sentAt,
+            ROW_NUMBER() OVER (PARTITION BY m.id ORDER BY mc.chunk_index ASC) AS rowNumber
+          FROM message_chunks mc
+          JOIN messages m ON m.id = mc.message_id
+          JOIN chats c ON c.id = m.chat_id
+          WHERE (${where})
+          ${likeExcludedWhere}
+          ${scope.where}
+        ) ranked
+        WHERE rowNumber = 1
+        ORDER BY sentAt DESC
         LIMIT ?
       `,
       )
