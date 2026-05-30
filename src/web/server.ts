@@ -1363,6 +1363,10 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
       reply.code(400);
       return { ok: false, message: "entryType 必须是 fact 或 inferred。" };
     }
+    if (category === existing.category && content === existing.content) {
+      reply.code(400);
+      return { ok: false, message: "修正内容没有变化。" };
+    }
 
     const entryIdNew = profiles.replaceProfileEntry({
       supersedeEntryId: entryId,

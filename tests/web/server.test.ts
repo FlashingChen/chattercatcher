@@ -483,6 +483,20 @@ describe("web server", () => {
       expect(html.body).toContain("function toJsArgument");
       expect(html.body).toContain("/api/persons/\" + encodeURIComponent(personId) + \"/profile/entries/");
 
+      const unchangedCorrection = await app.inject({
+        method: "POST",
+        url: `/api/persons/${dadPersonId}/profile/entries/${dadProfile.json().entries[0].id}/correct`,
+        headers: { cookie: "chattercatcher_web_token=test-token" },
+        payload: {
+          content: "后端开发工程师",
+          evidenceMessageId: dadMessageId,
+          quote: "后端开发",
+          reason: "内容没有变化",
+        },
+      });
+      expect(unchangedCorrection.statusCode).toBe(400);
+      expect(unchangedCorrection.json()).toMatchObject({ ok: false, message: "修正内容没有变化。" });
+
       const correction = await app.inject({
         method: "POST",
         url: `/api/persons/${momPersonId}/profile/entries/${momProfile.json().entries[0].id}/correct`,
