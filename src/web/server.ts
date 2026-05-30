@@ -622,6 +622,55 @@ function buildHtml(): string {
       return result;
     }
 
+    function toJsArgument(value) {
+      return escapeHtml(JSON.stringify(fmt(value)));
+    }
+
+    function findEntryEvidenceMessage(entry) {
+      var evidence = entry.evidence || [];
+      return evidence.length > 0 ? evidence[0].messageId : "";
+    }
+
+    function findEntryEvidenceQuote(entry) {
+      var evidence = entry.evidence || [];
+      return evidence.length > 0 ? evidence[0].quote : "";
+    }
+
+    async function correctPersonProfileEntry(personId, entryId, category, content, entryType, confidence, evidenceMessageId, quote) {
+      var nextContent = prompt("修正档案内容", content);
+      if (!nextContent || !nextContent.trim()) return;
+      var reason = prompt("修正理由", "用户在 Web UI 显式修正") || "用户在 Web UI 显式修正";
+      try {
+        await postJson("/api/persons/" + encodeURIComponent(personId) + "/profile/entries/" + encodeURIComponent(entryId) + "/correct", {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            category: category,
+            content: nextContent.trim(),
+            entryType: entryType,
+            confidence: confidence,
+            evidenceMessageId: evidenceMessageId,
+            quote: quote || content,
+            reason: reason
+          })
+        });
+        showToast("档案条目已修正", "success");
+        await showPersonProfile(personId);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), "error");
+      }
+    }
+
+    async function deletePersonProfileEntry(personId, entryId) {
+      if (!confirm("确认删除这条档案条目？")) return;
+      try {
+        await deleteJson("/api/persons/" + encodeURIComponent(personId) + "/profile/entries/" + encodeURIComponent(entryId));
+        showToast("档案条目已删除", "success");
+        await showPersonProfile(personId);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), "error");
+      }
+    }
+
     function renderMetrics(status) {
       var gatewayClass = status.gateway.configured ? "status-dot online" : "status-dot offline";
       var gatewayText = status.gateway.connection === "running" ? "运行中" : (!status.gateway.configured ? "未配置" : "待启动");
@@ -940,10 +989,13 @@ function buildHtml(): string {
           var entry = entries[i];
           var evidence = entry.evidence || [];
           html += '<div class="content-panel" style="background:rgba(255,255,255,0.03);padding:var(--space-md);">' +
-            '<div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm);">' +
+            '<div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm);align-items:center;flex-wrap:wrap;">' +
             '<span class="tag">' + escapeHtml(entry.category) + '</span>' +
             '<span class="tag ' + (entry.entryType === 'fact' ? 'tag-success' : 'tag-info') + '">' + escapeHtml(entry.entryType) + '</span>' +
             '<span style="font-size:12px;color:var(--text-muted);">' + escapeHtml(Math.round(entry.confidence * 100)) + '%</span>' +
+            '<span style="flex:1;"></span>' +
+            '<button class="btn btn-sm" onclick="correctPersonProfileEntry(' + toJsArgument(id) + ',' + toJsArgument(entry.id) + ',' + toJsArgument(entry.category) + ',' + toJsArgument(entry.content) + ',' + toJsArgument(entry.entryType) + ',' + Number(entry.confidence || 0) + ',' + toJsArgument(findEntryEvidenceMessage(entry)) + ',' + toJsArgument(findEntryEvidenceQuote(entry)) + ')">修正</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="deletePersonProfileEntry(' + toJsArgument(id) + ',' + toJsArgument(entry.id) + ')">删除</button>' +
             '</div>' +
             '<div style="font-weight:500;margin-bottom:var(--space-xs);">' + escapeHtml(entry.content) + '</div>';
           if (evidence.length > 0) {

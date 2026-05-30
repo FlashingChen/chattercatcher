@@ -474,6 +474,15 @@ describe("web server", () => {
         senderName: "老爸",
       });
 
+      const html = await app.inject({ method: "GET", url: "/" });
+      expect(html.statusCode).toBe(200);
+      expect(html.body).toContain("修正");
+      expect(html.body).toContain("删除");
+      expect(html.body).toContain("correctPersonProfileEntry");
+      expect(html.body).toContain("deletePersonProfileEntry");
+      expect(html.body).toContain("function toJsArgument");
+      expect(html.body).toContain("/api/persons/\" + encodeURIComponent(personId) + \"/profile/entries/");
+
       const correction = await app.inject({
         method: "POST",
         url: `/api/persons/${momPersonId}/profile/entries/${momProfile.json().entries[0].id}/correct`,
