@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.6] - 2026-05-29
+## [0.2.7] - 2026-05-30
 
 ### Added
 - 个人档案（Personal Profiles）：自动从群聊消息中识别成员，建立以人物为中心的知识档案。每个成员拥有独立的 profile entries，按 category 分类，包含事实（fact）和推断（inferred）两种类型。
