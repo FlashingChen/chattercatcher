@@ -153,7 +153,7 @@
 - 档案存储：PersonProfile 数据模型，包含 person、identities、entries。
 - ProfileRepository：本地 SQLite 仓储，支持 upsert、查询、修正。
 - Dream 处理器：周期性批量分析新消息，LLM 自动提取档案更新。
-- 档案 RAG 工具：get_person_profile 和 list_person_profiles Agent 工具。
+- 档案 RAG 工具：get_person_profile 和 search_person_messages Agent 工具。
 - 档案修正：支持通过 API 显式纠正档案条目。
 - Web UI 档案页面：展示人物列表、档案详情和手动修正入口。
 - CLI 档案命令：profiles list、profiles show。

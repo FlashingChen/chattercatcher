@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDefaultConfig } from "../../src/config/schema.js";
+import { createDefaultConfig, createDefaultSecrets } from "../../src/config/schema.js";
+import { saveSecrets } from "../../src/config/store.js";
 import { CronJobRepository } from "../../src/cron/jobs.js";
 import { openDatabase } from "../../src/db/database.js";
 import { ingestLocalFile } from "../../src/files/ingest.js";
@@ -18,9 +19,11 @@ let testDir: string;
 describe("web server", () => {
   beforeEach(async () => {
     testDir = await fs.mkdtemp(path.join(os.tmpdir(), "chattercatcher-web-"));
+    process.env.CHATTERCATCHER_HOME = path.join(testDir, "home");
   });
 
   afterEach(async () => {
+    delete process.env.CHATTERCATCHER_HOME;
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
@@ -318,6 +321,9 @@ describe("web server", () => {
   it("提供个人档案 API", async () => {
     const config = createDefaultConfig();
     config.storage.dataDir = path.join(testDir, "data");
+    const secrets = createDefaultSecrets();
+    secrets.web.actionToken = "test-token";
+    await saveSecrets(secrets);
     const database = openDatabase(config);
     let momPersonId = "";
     let dadPersonId = "";
@@ -467,6 +473,64 @@ describe("web server", () => {
         text: "我换工作了，在新公司做后端开发。",
         senderName: "老爸",
       });
+
+      const correction = await app.inject({
+        method: "POST",
+        url: `/api/persons/${momPersonId}/profile/entries/${momProfile.json().entries[0].id}/correct`,
+        headers: { cookie: "chattercatcher_web_token=test-token" },
+        payload: {
+          category: "家庭角色",
+          content: "妈妈，负责记家庭重要日期",
+          entryType: "fact",
+          confidence: 0.95,
+          evidenceMessageId: momMessageId,
+          quote: "爸爸的生日是 5 月 12 日。",
+          reason: "用户在 Web UI 显式修正",
+        },
+      });
+      expect(correction.statusCode).toBe(200);
+      expect(correction.json()).toMatchObject({ ok: true, entryId: expect.any(String) });
+
+      const correctedProfile = await app.inject({ method: "GET", url: `/api/persons/${momPersonId}/profile` });
+      expect(correctedProfile.json().entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: correction.json().entryId,
+            content: "妈妈，负责记家庭重要日期",
+            source: "explicit_user_request",
+          }),
+        ]),
+      );
+      expect(correctedProfile.json().entries).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ content: "妈妈" })]),
+      );
+
+      const deleteCorrection = await app.inject({
+        method: "DELETE",
+        url: `/api/persons/${momPersonId}/profile/entries/${correction.json().entryId}`,
+        headers: { cookie: "chattercatcher_web_token=test-token" },
+      });
+      expect(deleteCorrection.statusCode).toBe(200);
+      expect(deleteCorrection.json()).toMatchObject({ ok: true });
+
+      const deletedProfile = await app.inject({ method: "GET", url: `/api/persons/${momPersonId}/profile` });
+      expect(deletedProfile.json().entries).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: correction.json().entryId })]),
+      );
+
+      const unauthorizedCorrection = await app.inject({
+        method: "POST",
+        url: `/api/persons/${dadPersonId}/profile/entries/${dadProfile.json().entries[0].id}/correct`,
+        payload: {
+          category: "工作",
+          content: "后端开发工程师",
+          evidenceMessageId: dadMessageId,
+          quote: "后端开发",
+          reason: "未授权请求",
+        },
+      });
+      expect(unauthorizedCorrection.statusCode).toBe(403);
+      expect(unauthorizedCorrection.json()).toMatchObject({ ok: false, message: "Web 操作未授权。" });
 
       const emptyMessages = await app.inject({ method: "GET", url: "/api/persons/missing_person/messages" });
       expect(emptyMessages.statusCode).toBe(200);

@@ -1097,6 +1097,18 @@ function isAuthorizedWebAction(request: { headers: Record<string, string | strin
   return parseCookies(request.headers.cookie).chattercatcher_web_token === token;
 }
 
+function readStringField(input: unknown, key: string): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readNumberField(input: unknown, key: string, fallback: number): number {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return fallback;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function toQaLogListItem(log: ReturnType<QaLogRepository["listRecent"]>[number]) {
   const { trace: _trace, ...item } = log;
   return item;
@@ -1268,6 +1280,69 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
       LIMIT ?`
     ).all(id, limit);
     return { items: rows };
+  });
+
+  app.post("/api/persons/:id/profile/entries/:entryId/correct", async (request, reply) => {
+    await tokenReady;
+    if (!isAuthorizedWebAction(request, webActionToken)) {
+      reply.code(403);
+      return { ok: false, message: "Web 操作未授权。" };
+    }
+
+    const { id, entryId } = request.params as { id: string; entryId: string };
+    const existing = profiles.getProfileEntry(entryId);
+    if (!existing || existing.personId !== id || existing.status !== "active") {
+      reply.code(404);
+      return { ok: false, message: "没有找到该档案条目。" };
+    }
+
+    const body = request.body as unknown;
+    const category = readStringField(body, "category") ?? existing.category;
+    const content = readStringField(body, "content");
+    const entryType = readStringField(body, "entryType") ?? existing.entryType;
+    const evidenceMessageId = readStringField(body, "evidenceMessageId");
+    const quote = readStringField(body, "quote");
+    const reason = readStringField(body, "reason") ?? "用户在 Web UI 显式修正";
+    if (!content || !evidenceMessageId || !quote) {
+      reply.code(400);
+      return { ok: false, message: "修正必须包含 content、evidenceMessageId 和 quote。" };
+    }
+    if (entryType !== "fact" && entryType !== "inferred") {
+      reply.code(400);
+      return { ok: false, message: "entryType 必须是 fact 或 inferred。" };
+    }
+
+    const entryIdNew = profiles.replaceProfileEntry({
+      supersedeEntryId: entryId,
+      input: {
+        personId: id,
+        category,
+        content,
+        entryType,
+        confidence: Math.min(1, Math.max(0, readNumberField(body, "confidence", existing.confidence))),
+        source: "explicit_user_request",
+        evidence: [{ messageId: evidenceMessageId, quote, reason }],
+      },
+    });
+    return { ok: true, entryId: entryIdNew };
+  });
+
+  app.delete("/api/persons/:id/profile/entries/:entryId", async (request, reply) => {
+    await tokenReady;
+    if (!isAuthorizedWebAction(request, webActionToken)) {
+      reply.code(403);
+      return { ok: false, message: "Web 操作未授权。" };
+    }
+
+    const { id, entryId } = request.params as { id: string; entryId: string };
+    const existing = profiles.getProfileEntry(entryId);
+    if (!existing || existing.personId !== id || existing.status !== "active") {
+      reply.code(404);
+      return { ok: false, message: "没有找到该档案条目。" };
+    }
+
+    profiles.markProfileEntryDeleted(entryId);
+    return { ok: true };
   });
 
   app.post("/api/process/messages", async (request, reply) => {

@@ -5,9 +5,9 @@
 ### Added
 - 个人档案（Personal Profiles）：自动从群聊消息中识别成员，建立以人物为中心的知识档案。每个成员拥有独立的 profile entries，按 category 分类，包含事实（fact）和推断（inferred）两种类型。
 - Dream 处理器：周期性批量分析新消息，自动提取人物档案变化。Dream 只基于当前批次消息输出档案更新，带证据引用和置信度评分。
-- 档案 RAG 工具：`get_person_profile` 和 `list_person_profiles` 两个 Agent 工具，让问答系统可以检索人物档案来辅助回答问题。
-- 档案修正：支持通过 `correction` 类型显式纠正档案条目，用户可指定修正理由和证据。
-- 档案 Web API：`GET /api/profiles`、`GET /api/profiles/:personId`、`POST /api/profiles/:personId/correct` 等接口，Web UI 可展示和管理人物档案。
+- 档案 RAG 工具：`get_person_profile` 和 `search_person_messages` 两个 Agent 工具，让问答系统可以检索人物档案并按人物搜索消息来辅助回答问题。
+- 档案修正：支持通过 Web API 显式纠正或删除档案条目，用户可指定修正理由和证据。
+- 档案 Web API：`GET /api/persons`、`GET /api/persons/:personId/profile`、`GET /api/persons/:personId/messages`、`POST /api/persons/:personId/profile/entries/:entryId/correct` 和 `DELETE /api/persons/:personId/profile/entries/:entryId` 等接口，Web UI 可展示和维护人物档案。
 - 发布要求：`CHANGELOG.md` 纳入 npm 发布包，每次发版必须更新。
 
 ## [0.2.5] - 2026-05-27
