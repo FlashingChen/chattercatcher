@@ -4,7 +4,7 @@
 - [x] 任务 0 基线核对（62/295 全绿，lint/build 通过）
 - [x] 任务 1 XLSX：jszip+cheerio 手写解析，多工作表/共享字符串中文验证通过；提交 feat: 添加 XLSX 解析支持
 - [x] 任务 2 PPTX：jszip 解压 + cheerio 提 `<a:t>`，按 slide 数字排序保证顺序；多页中文验证通过
-- [ ] 任务 3 HTML
+- [x] 任务 3 HTML：cheerio 去 script/style/nav/head 等取正文，脚本内容与导航不在输出中
 - [ ] 任务 4 收尾接线 + 反向验证
 - 注：parser.ts 为单一原子文件，三种格式分支同住其中，随任务 1 首次引入一并提交；后续任务只补测试与文档。
 
