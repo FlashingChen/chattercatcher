@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- 文件解析新增三种格式：XLSX（支持共享字符串与多工作表，中文不乱码）、PPTX（按幻灯片顺序提取每页文字）、HTML/HTM（剥除 script/style/nav 等样板后提取正文）。
+
 ## [0.2.7] - 2026-05-30
 
 ### Added

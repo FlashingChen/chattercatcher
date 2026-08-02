@@ -5,7 +5,13 @@
 - [x] 任务 1 XLSX：jszip+cheerio 手写解析，多工作表/共享字符串中文验证通过；提交 feat: 添加 XLSX 解析支持
 - [x] 任务 2 PPTX：jszip 解压 + cheerio 提 `<a:t>`，按 slide 数字排序保证顺序；多页中文验证通过
 - [x] 任务 3 HTML：cheerio 去 script/style/nav/head 等取正文，脚本内容与导航不在输出中
-- [ ] 任务 4 收尾接线 + 反向验证
+- [x] 任务 4 收尾：describeSupportedParseTypes 已含三种格式；架构文档/CHANGELOG/README 已同步
+- [x] 反向验证：xlsx/pptx/html 各做一次「改 throw→变红→还原→变绿」，证明测试真实守着解析器
+
+## 完成状态（2026-08-02）
+- npm test：65 文件 / 303 测试全绿，skipped=0；输出可见 xlsx(3)、pptx(3)、html(2) 三组新用例通过。
+- npm run lint（tsc）退出 0；npm run build（tsup）退出 0。
+- git status --short 仅含白名单路径 + PROGRESS.md/BLOCKED.md。
 - 注：parser.ts 为单一原子文件，三种格式分支同住其中，随任务 1 首次引入一并提交；后续任务只补测试与文档。
 
 ## 理解的目标

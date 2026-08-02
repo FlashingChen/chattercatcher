@@ -78,13 +78,14 @@ SQLite 同时负责结构化元数据、关键词召回和本地 embedding 向�
 
 - PDF：`pdf-parse`。
 - DOCX：`mammoth`。
+- XLSX：`jszip` 解压 + `cheerio` 提取共享字符串与各工作表单元格文本。
+- PPTX：`jszip` 解压 XML，按幻灯片顺序提取 `<a:t>` 文字。
+- HTML/HTM：`cheerio` 剥除 script/style/nav 等样板后提取正文。
 - 纯文本类：txt、md、json、csv、tsv、log。
 
 规划中（尚未实现）：
 
-- XLSX：`xlsx`。
-- PPTX：先解压 XML 提取，之后再接专用 parser。
-- HTML/链接：`cheerio` 加 readability。
+- HTML 网页链接抓取：抓取聊天消息里的 URL（涉及出网请求与隐私，待裁决）。
 - OCR：可配置路径，使用 Tesseract.js 或基于视觉模型的 OCR。
 - 音频：先支持可配置的 OpenAI-compatible transcription，之后支持本地 Whisper。
 

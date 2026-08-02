@@ -132,7 +132,7 @@ ChatterCatcher 是一个早期 MVP。它已经具备飞书长连接接入、本�
 | 问答 | OpenAI-compatible chat completions、Agent 多轮工具调用、证据不足时说不知道、回答带引用、工具循环耗尽智能兜底 |
 | 定时任务 | 群内自然语言创建 cron 定时任务（如"每天 9 点总结昨天群聊"），限定当前群聊，支持创建/查看/删除 |
 | 引用格式 | 展示"谁在什么时候说了什么"，避免暴露 `ou_` / `oc_` 等 opaque id |
-| 文件知识源 | 支持 txt、md、json、csv、tsv、log、docx、pdf 导入和解析 |
+| 文件知识源 | 支持 txt、md、json、csv、tsv、log、docx、pdf、xlsx、pptx、html 导入和解析 |
 | CLI | setup、settings、doctor、gateway、process、index、files、export、restore、profiles |
 | Web UI | 本地状态看板、自动刷新、最近消息、群聊、文件库、人物档案和解析任务 |
 | 隐私 | 配置与密钥分离；导出不包含 API Key、App Secret 或 token；会话摘要会脱敏疑似密钥 |
