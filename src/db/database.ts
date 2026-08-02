@@ -237,6 +237,24 @@ export function migrateDatabase(database: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS image_multimodal_tasks_status_idx ON image_multimodal_tasks(status, updated_at);
 
+    CREATE TABLE IF NOT EXISTS audio_transcription_tasks (
+      id TEXT PRIMARY KEY,
+      source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      platform_message_id TEXT NOT NULL,
+      audio_key TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','skipped','failed')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      derived_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(source_message_id, audio_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS audio_transcription_tasks_status_idx ON audio_transcription_tasks(status, updated_at);
+
     CREATE TABLE IF NOT EXISTS feishu_chat_members (
       chat_id TEXT NOT NULL,
       open_id TEXT NOT NULL,

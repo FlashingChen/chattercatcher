@@ -28,6 +28,7 @@ import { getGatewayStatus } from "./gateway/index.js";
 import { getGatewayLogPath, removeGatewayPidRecord, stopGatewayProcess, writeGatewayPidRecord } from "./gateway/runtime.js";
 import { createChatModel, createEmbeddingModel } from "./llm/openai-compatible.js";
 import { createMultimodalModel } from "./multimodal/openai-compatible.js";
+import { createTranscriptionModel } from "./multimodal/transcription-client.js";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
@@ -320,6 +321,13 @@ async function startGatewayForegroundCommand(): Promise<void> {
         ? {
             database,
             model: createMultimodalModel(config, secrets),
+          }
+        : undefined,
+    audioTranscriptionProcessor:
+      config.transcription.baseUrl && config.transcription.model && secrets.transcription.apiKey
+        ? {
+            database,
+            model: createTranscriptionModel(config, secrets),
           }
         : undefined,
     indexingProcessor: {

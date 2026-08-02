@@ -10,6 +10,7 @@ import { GatewayIngestor } from "../../src/gateway/ingest.js";
 import { MessageRepository } from "../../src/messages/repository.js";
 
 import { ProfileRepository } from "../../src/profiles/repository.js";
+import { AudioTranscriptionTaskRepository } from "../../src/multimodal/audio-tasks.js";
 import { ImageMultimodalTaskRepository } from "../../src/multimodal/tasks.js";
 import { MessageFtsRetriever } from "../../src/rag/message-retriever.js";
 
@@ -460,6 +461,121 @@ describe("GatewayIngestor", () => {
       expect(result.attachment?.imageTask).toBeUndefined();
       expect(result.attachment?.skippedReason).toBe("图片已下载，但多模态未配置。");
       expect(new ImageMultimodalTaskRepository(database).listPending()).toHaveLength(0);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("飞书语音附件下载后会创建转写后台任务", async () => {
+    const config = createDefaultConfig();
+    const secrets = createDefaultSecrets();
+    secrets.transcription.apiKey = "transcribe-key";
+    config.storage.dataDir = testDir;
+    config.transcription.baseUrl = "https://transcribe.test/v1";
+    config.transcription.model = "whisper";
+    const database = openDatabase(config);
+    const downloader = new FeishuResourceDownloader(
+      {
+        im: {
+          messageResource: {
+            async get() {
+              return {
+                async writeFile(filePath: string) {
+                  await fs.writeFile(filePath, Buffer.from([1, 2, 3]));
+                },
+              };
+            },
+          },
+        },
+      },
+      testDir,
+    );
+
+    try {
+      const result = await new GatewayIngestor(database).ingestFeishuEventAndDownloadAttachments({
+        config,
+        secrets,
+        downloader,
+        payload: {
+          event: {
+            sender: { sender_id: { open_id: "ou_mom" } },
+            message: {
+              message_id: "om_audio",
+              chat_id: "oc_family",
+              create_time: "1777111200000",
+              message_type: "audio",
+              content: JSON.stringify({ file_key: "audio_v2_xxx" }),
+            },
+          },
+        },
+      });
+
+      const tasks = new AudioTranscriptionTaskRepository(database).listPending();
+
+      expect(result.accepted).toBe(true);
+      expect(result.attachment?.downloaded?.fileName).toBe("om_audio-audio_v2_xxx.mp3");
+      expect(result.attachment?.audioTask).toMatchObject({ audioKey: "audio_v2_xxx", status: "pending" });
+      expect(result.attachment?.skippedReason).toBe("语音已下载，等待转写后台处理。");
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toMatchObject({
+        sourceMessageId: result.messageId,
+        platformMessageId: "om_audio",
+        audioKey: "audio_v2_xxx",
+        mimeType: "audio/mpeg",
+        status: "pending",
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("转写缺少 apiKey 时语音只下载不创建任务", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    config.transcription.baseUrl = "https://transcribe.test/v1";
+    config.transcription.model = "whisper";
+    const database = openDatabase(config);
+    const downloader = new FeishuResourceDownloader(
+      {
+        im: {
+          messageResource: {
+            async get() {
+              return {
+                async writeFile(filePath: string) {
+                  await fs.writeFile(filePath, Buffer.from([1, 2, 3]));
+                },
+              };
+            },
+          },
+        },
+      },
+      testDir,
+    );
+
+    try {
+      const result = await new GatewayIngestor(database).ingestFeishuEventAndDownloadAttachments({
+        config,
+        secrets: createDefaultSecrets(),
+        downloader,
+        payload: {
+          event: {
+            sender: { sender_id: { open_id: "ou_mom" } },
+            message: {
+              message_id: "om_partial_audio",
+              chat_id: "oc_family",
+              create_time: "1777111200000",
+              message_type: "audio",
+              content: JSON.stringify({ file_key: "audio_v2_partial" }),
+            },
+          },
+        },
+      });
+
+      expect(result.accepted).toBe(true);
+      expect(result.attachment?.downloaded).toBeTruthy();
+      expect(result.attachment?.audioTask).toBeUndefined();
+      expect(result.attachment?.skippedReason).toBe("语音已下载，但转写未配置。");
+      expect(new AudioTranscriptionTaskRepository(database).listPending()).toHaveLength(0);
     } finally {
       database.close();
     }

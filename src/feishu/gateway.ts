@@ -18,6 +18,9 @@ import type { ChatModel } from "../rag/types.js";
 import type { SqliteDatabase } from "../db/database.js";
 import { resolveHomePath } from "../config/paths.js";
 import type { FeishuReceiveMessageEvent } from "./normalize.js";
+import { AudioTranscriptionTaskRepository } from "../multimodal/audio-tasks.js";
+import type { TranscriptionModel } from "../multimodal/audio-types.js";
+import { AudioTranscriptionWorker } from "../multimodal/audio-worker.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { MultimodalModel } from "../multimodal/types.js";
 import { ImageMultimodalWorker } from "../multimodal/worker.js";
@@ -47,6 +50,7 @@ export interface FeishuGatewayOptions {
   attachmentVectorIndexer?: (messageId: string) => Promise<{ chunks: number; vectors: number }>;
   episodeProcessor?: { database: SqliteDatabase; model: ChatModel; now?: () => Date };
   imageMultimodalProcessor?: { database: SqliteDatabase; model: MultimodalModel };
+  audioTranscriptionProcessor?: { database: SqliteDatabase; model: TranscriptionModel };
   indexingProcessor?: { database: SqliteDatabase };
   indexingScheduler?: IndexingScheduler;
   cronJobProcessor?: { database: SqliteDatabase; model: ChatModel; sender: Pick<MessageSender, "sendTextToChat" | "sendImageToChat"> };
@@ -87,6 +91,7 @@ export function createFeishuEventDispatcher(options: {
   attachmentVectorIndexer?: (messageId: string) => Promise<{ chunks: number; vectors: number }>;
   episodeProcessor?: { database: SqliteDatabase; model: ChatModel; now?: () => Date };
   imageMultimodalProcessor?: { database: SqliteDatabase; model: MultimodalModel };
+  audioTranscriptionProcessor?: { database: SqliteDatabase; model: TranscriptionModel };
 }): lark.EventDispatcher {
   const answeredMessageIds = new Set<string>();
 
@@ -174,6 +179,23 @@ export function createFeishuEventDispatcher(options: {
             console.error(`飞书图片多模态处理失败：${message}`);
           });
         }
+        if (options.audioTranscriptionProcessor && result.attachment.audioTask) {
+          void new AudioTranscriptionWorker({
+            config: options.config,
+            messages: new MessageRepository(options.audioTranscriptionProcessor.database),
+            tasks: new AudioTranscriptionTaskRepository(options.audioTranscriptionProcessor.database),
+            model: options.audioTranscriptionProcessor.model,
+            transcriptionModelName: options.config.transcription.model,
+            vectorIndexMessage: options.attachmentVectorIndexer,
+          }).processPending().then((audioResult) => {
+            console.log(
+              `飞书语音转写处理完成：processed=${audioResult.processed}, succeeded=${audioResult.succeeded}, skipped=${audioResult.skipped}, failed=${audioResult.failed}`,
+            );
+          }).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`飞书语音转写处理失败：${message}`);
+          });
+        }
         if (result.attachment.indexedMessageId) {
           console.log(`飞书附件已进入 RAG：${result.attachment.indexedMessageId}`);
           if (result.attachment.vectorIndexed) {
@@ -251,6 +273,7 @@ export function createFeishuGateway(options: FeishuGatewayOptions): FeishuGatewa
     attachmentVectorIndexer: options.attachmentVectorIndexer,
     episodeProcessor: options.episodeProcessor,
     imageMultimodalProcessor: options.imageMultimodalProcessor,
+    audioTranscriptionProcessor: options.audioTranscriptionProcessor,
   });
 
   const indexingScheduler = options.indexingScheduler ?? (

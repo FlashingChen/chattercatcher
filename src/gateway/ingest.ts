@@ -11,6 +11,8 @@ import { isSupportedTextFile, ingestLocalFile } from "../files/ingest.js";
 import { FileJobRepository } from "../files/jobs.js";
 import { MessageRepository } from "../messages/repository.js";
 import type { IngestMessageInput } from "../messages/types.js";
+import { AudioTranscriptionTaskRepository } from "../multimodal/audio-tasks.js";
+import type { AudioTranscriptionTaskRecord } from "../multimodal/audio-types.js";
 import { ImageMultimodalTaskRepository } from "../multimodal/tasks.js";
 import type { ImageMultimodalTaskRecord } from "../multimodal/types.js";
 import type { ProfileRepository } from "../profiles/repository.js";
@@ -31,6 +33,7 @@ export interface GatewayAttachmentIngestResult {
     vectors: number;
   };
   imageTask?: ImageMultimodalTaskRecord;
+  audioTask?: AudioTranscriptionTaskRecord;
   skippedReason?: string;
 }
 
@@ -74,10 +77,15 @@ function isMultimodalReady(config: AppConfig, secrets: AppSecrets): boolean {
   return Boolean(config.multimodal.baseUrl && config.multimodal.model && secrets.multimodal.apiKey);
 }
 
+function isTranscriptionReady(config: AppConfig, secrets: AppSecrets): boolean {
+  return Boolean(config.transcription.baseUrl && config.transcription.model && secrets.transcription.apiKey);
+}
+
 export class GatewayIngestor {
   private readonly messages: MessageRepository;
   private readonly jobs: FileJobRepository;
   private readonly imageTasks: ImageMultimodalTaskRepository;
+  private readonly audioTasks: AudioTranscriptionTaskRepository;
 
   constructor(
     public readonly database: SqliteDatabase,
@@ -86,6 +94,7 @@ export class GatewayIngestor {
     this.messages = new MessageRepository(database);
     this.jobs = new FileJobRepository(database);
     this.imageTasks = new ImageMultimodalTaskRepository(database);
+    this.audioTasks = new AudioTranscriptionTaskRepository(database);
   }
 
   private enrichWithPerson(input: IngestMessageInput): IngestMessageInput {
@@ -193,6 +202,27 @@ export class GatewayIngestor {
           downloaded,
           ...(imageTask ? { imageTask } : {}),
           skippedReason: imageTask ? "图片已下载，等待多模态后台处理。" : "图片已下载，但多模态未配置。",
+        },
+      };
+    }
+
+    if (attachment.kind === "audio") {
+      const audioTask = isTranscriptionReady(input.config, input.secrets)
+        ? this.audioTasks.enqueue({
+            sourceMessageId: result.messageId,
+            platformMessageId: result.message.platformMessageId,
+            audioKey: attachment.fileKey,
+            storedPath: downloaded.storedPath,
+            mimeType: attachment.mimeType || "audio/mpeg",
+          })
+        : undefined;
+
+      return {
+        ...result,
+        attachment: {
+          downloaded,
+          ...(audioTask ? { audioTask } : {}),
+          skippedReason: audioTask ? "语音已下载，等待转写后台处理。" : "语音已下载，但转写未配置。",
         },
       };
     }

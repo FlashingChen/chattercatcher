@@ -59,6 +59,15 @@ export interface CreateImageSummaryMessageInput {
   generatedAt: string;
 }
 
+export interface CreateAudioTranscriptMessageInput {
+  sourceMessageId: string;
+  audioKey: string;
+  audioFileName?: string;
+  transcript: string;
+  transcriptionModel: string;
+  generatedAt: string;
+}
+
 export interface MessageSearchScope {
   platform?: string;
   platformChatId?: string;

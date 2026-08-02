@@ -3,6 +3,7 @@ import type { SqliteDatabase } from "../db/database.js";
 import { chunkText } from "./chunker.js";
 import type {
   ChatRecord,
+  CreateAudioTranscriptMessageInput,
   CreateImageSummaryMessageInput,
   FileRecord,
   IngestMessageInput,
@@ -246,6 +247,70 @@ export class MessageRepository {
         multimodalModel: input.multimodalModel,
         isMeaningful: true,
         ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+        generatedAt: input.generatedAt,
+      },
+    });
+  }
+
+  createAudioTranscriptMessage(input: CreateAudioTranscriptMessageInput): string {
+    const source = this.database
+      .prepare(
+        `
+        SELECT
+          m.platform AS platform,
+          m.platform_message_id AS platformMessageId,
+          m.chat_id AS chatId,
+          m.sender_id AS senderId,
+          m.sender_name AS senderName,
+          m.person_id AS personId,
+          m.sent_at AS sentAt,
+          c.platform_chat_id AS platformChatId,
+          c.name AS chatName
+        FROM messages m
+        JOIN chats c ON c.id = m.chat_id
+        WHERE m.id = ?
+      `,
+      )
+      .get(input.sourceMessageId) as
+      | {
+          platform: string;
+          platformMessageId: string;
+          chatId: string;
+          senderId: string;
+          senderName: string;
+          personId: string | null;
+          sentAt: string;
+          platformChatId: string;
+          chatName: string;
+        }
+      | undefined;
+
+    if (!source) {
+      throw new Error("原始语音消息不存在。");
+    }
+
+    const derivedPlatformMessageId = `${source.platformMessageId}:audio-transcript:${input.audioKey}`;
+    const audioFileName = input.audioFileName?.trim();
+    const transcriptText = audioFileName
+      ? `[语音转写] 文件名：${audioFileName}\n${input.transcript.trim()}`
+      : `[语音转写] ${input.transcript.trim()}`;
+    return this.ingest({
+      platform: source.platform,
+      platformChatId: source.platformChatId,
+      chatName: source.chatName,
+      platformMessageId: derivedPlatformMessageId,
+      senderId: source.senderId,
+      senderName: source.senderName,
+      personId: source.personId ?? undefined,
+      messageType: "audio_transcript",
+      text: transcriptText,
+      sentAt: source.sentAt,
+      rawPayload: {
+        derivedFromMessageId: input.sourceMessageId,
+        sourceAttachmentKind: "audio",
+        sourceResourceKey: input.audioKey,
+        ...(audioFileName ? { audioFileName } : {}),
+        transcriptionModel: input.transcriptionModel,
         generatedAt: input.generatedAt,
       },
     });
