@@ -18,3 +18,9 @@
 - audio_transcription_tasks 表、AudioTranscriptionTaskRepository、OpenAICompatibleTranscriptionModel（POST /audio/transcriptions multipart）、AudioTranscriptionWorker、createAudioTranscriptMessage、ingest audio 分支入队、gateway 触发、cli 接线。
 - 转写文本 100% 来自 API 返回，attempts≥3 标失败。
 - multimodal+gateway 50 全绿；全量 68 文件/317 测试全绿，skipped=0。
+
+## 任务 3（已完成）
+
+- describeImage prompt 要求 JSON 返回 extractedText；解析函数校验可选字段（非字符串报错、空则省略）。
+- worker 把非空 extractedText 拼进派生消息（`[图片原文] ...`），summary 不变；空时行为一字不差。
+- 现有 multimodal 测试零修改；新增 5 用例。全量 68 文件/322 测试全绿，skipped=0。

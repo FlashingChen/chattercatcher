@@ -263,4 +263,64 @@ describe("ImageMultimodalWorker", () => {
       database.close();
     }
   });
+
+  it("图片 OCR 把 extractedText 原文拼进派生消息且 summary 不变", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    const messages = new MessageRepository(database);
+    const tasks = new ImageMultimodalTaskRepository(database);
+
+    try {
+      const sourceMessageId = messages.ingest({
+        platform: "dev",
+        platformChatId: "family",
+        chatName: "家庭群",
+        platformMessageId: "image-ocr",
+        senderId: "mom",
+        senderName: "老妈",
+        messageType: "image",
+        text: "[图片] ocr-1",
+        sentAt: "2026-05-01T10:00:00.000Z",
+      });
+      const task = tasks.enqueue({
+        sourceMessageId,
+        platformMessageId: "image-ocr",
+        imageKey: "ocr-1",
+        storedPath: "/tmp/screenshot.png",
+        mimeType: "image/png",
+      });
+      const model: MultimodalModel = {
+        async describeImage() {
+          return {
+            summary: "白板写着发布计划",
+            isMeaningful: true,
+            extractedText: "8月10日 上午9:00 家长会",
+          };
+        },
+      };
+
+      const result = await new ImageMultimodalWorker({
+        config,
+        messages,
+        tasks,
+        model,
+        multimodalModelName: "vision",
+      }).processPending();
+
+      const derived = messages.searchMessages("家长会")[0];
+      const row = database
+        .prepare("SELECT raw_payload_json AS rawPayloadJson FROM messages WHERE id = ?")
+        .get(derived?.messageId) as { rawPayloadJson: string } | undefined;
+
+      expect(result).toEqual({ processed: 1, succeeded: 1, skipped: 0, failed: 0 });
+      expect(derived).toMatchObject({ messageType: "image_summary" });
+      expect(derived?.text).toContain("[图片原文] 8月10日 上午9:00 家长会");
+      expect(derived?.text).toContain("白板写着发布计划");
+      expect(JSON.parse(row!.rawPayloadJson)).toMatchObject({ extractedText: "8月10日 上午9:00 家长会" });
+      expect(tasks.getById(task.id)).toMatchObject({ status: "succeeded" });
+    } finally {
+      database.close();
+    }
+  });
 });

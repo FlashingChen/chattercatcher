@@ -69,6 +69,7 @@ export class ImageMultimodalWorker {
         imageKey: running.imageKey,
         imageFileName,
         summary: described.summary,
+        ...(described.extractedText ? { extractedText: described.extractedText } : {}),
         reason: described.reason,
         multimodalModel: this.options.multimodalModelName,
         generatedAt: new Date().toISOString(),
