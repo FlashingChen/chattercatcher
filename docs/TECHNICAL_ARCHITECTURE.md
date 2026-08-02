@@ -53,17 +53,13 @@ flowchart TD
 
 ### Web UI
 
-- React。
-- Vite。
-- TanStack Query。
-- TanStack Router。
-- Tailwind CSS。
-- Radix UI 或 shadcn/ui。
+- 单文件 Fastify 服务：`src/web/server.ts`，内联原生 HTML/JS，无独立前端构建链。
+- 直接读取本地 SQLite 状态，提供状态看板、消息、群聊、文件库、episode、QA trace、人物档案页面和本地操作入口。
 
 ### 存储
 
-- SQLite：元数据、原始消息、任务、配置、事实、embedding 向量。
-- Drizzle ORM：schema 和 migration。
+- SQLite：元数据、原始消息、任务、配置、人物档案、embedding 向量。
+- `better-sqlite3`：schema 和内联 migration 直接维护在 `src/db/database.ts`，未引入外部 ORM。
 - SQLite FTS5：关键词检索。
 - SQLite embedding 向量索引：语义检索，向量存入 `message_chunk_embeddings`，运行时在 Node.js 侧计算余弦相似度。
 
@@ -78,8 +74,14 @@ SQLite 同时负责结构化元数据、关键词召回和本地 embedding 向�
 
 ### 解析器
 
-- PDF：`pdf-parse` 或 `unpdf`。
+已实现：
+
+- PDF：`pdf-parse`。
 - DOCX：`mammoth`。
+- 纯文本类：txt、md、json、csv、tsv、log。
+
+规划中（尚未实现）：
+
 - XLSX：`xlsx`。
 - PPTX：先解压 XML 提取，之后再接专用 parser。
 - HTML/链接：`cheerio` 加 readability。
@@ -94,16 +96,15 @@ SQLite 同时负责结构化元数据、关键词召回和本地 embedding 向�
 ~/.chattercatcher/
   config.json
   secrets.json
+  gateway.pid
   data/
     chattercatcher.db
     exports/
     files/
-    thumbnails/
-    transcripts/
-    vector/
   logs/
-  cache/
 ```
+
+home 目录可用 `CHATTERCATCHER_HOME` 覆盖；日志文件位于 `logs/` 下，通过 `chattercatcher logs` 读取。
 
 `config.json` 存普通配置。
 
@@ -143,62 +144,55 @@ received_at
 created_at
 ```
 
-### files
+以下表结构以 `src/db/database.ts` 的内联 migration 为权威，这里只列关键列。
+
+### file_jobs
+
+原设计的 `files` 表与任务队列合并为 `file_jobs`，同时承担文件元数据和解析任务状态；暂未持久化 `sha256` 和 `platform_file_key`。
 
 ```text
 id
-message_id
-platform_file_key
+source_path
+stored_path
 file_name
-mime_type
-local_path
-sha256
-size_bytes
-parse_status
+status
+parser
+message_id
+bytes
+characters
+warnings_json
+error
 created_at
 updated_at
 ```
 
-### chunks
+### message_chunks
 
 ```text
 id
-source_type
-source_id
+message_id
 chunk_index
 text
-metadata_json
 created_at
 ```
 
-### embeddings
+### message_chunk_embeddings
 
 ```text
-id
 chunk_id
-provider
 model
 dimension
 embedding_json
 updated_at
 ```
 
-### facts
+### memory_episodes / memory_episode_messages
 
-```text
-id
-subject
-predicate
-value
-confidence
-status
-source_chunk_id
-supersedes_fact_id
-valid_from
-created_at
-```
+会话记忆块：episode 摘要文本、时间窗口、关联原始消息 ID，摘要进入 FTS/RAG。
 
 ### qa_logs
+
+已实现，含 QA trace（推理过程、工具调用、证据），供 Web UI QA trace 详情页展示。
 
 ```text
 id
@@ -208,11 +202,17 @@ question
 answer
 citations_json
 retrieval_debug_json
+trace_json
+status
+error
 created_at
 ```
 
+### facts（规划，未实现）
 
-### person_profiles
+持久化事实管道（subject/predicate/value/confidence/status/supersedes）属于 M3 范围，当前冲突处理由 LLM prompt 规则承担。
+
+### persons
 
 ```text
 id
@@ -236,7 +236,7 @@ first_seen_at
 last_seen_at
 ```
 
-### profile_entries
+### person_profile_entries
 
 ```text
 id
@@ -252,7 +252,7 @@ updated_at
 last_observed_at
 ```
 
-### profile_evidence
+### person_profile_evidence
 
 ```text
 entry_id
@@ -261,7 +261,7 @@ quote
 reason
 ```
 
-### dream_state
+### profile_dream_state
 
 ```text
 platform
@@ -271,7 +271,7 @@ last_message_sent_at
 updated_at
 ```
 
-### dream_runs
+### profile_dream_runs
 
 ```text
 id
@@ -285,18 +285,13 @@ started_at
 finished_at
 ```
 
-### jobs
+### 其他已实现表
 
-```text
-id
-type
-status
-payload_json
-attempts
-last_error
-created_at
-updated_at
-```
+- `image_multimodal_tasks`：图片多模态转述任务。
+- `cron_jobs`：群内自然语言定时任务。
+- `feishu_chat_members`：飞书群成员昵称缓存。
+
+通用 `jobs` 表未实现，任务按类型分表（file_jobs、image_multimodal_tasks、cron_jobs）。
 
 ## RAG 设计
 
@@ -400,10 +395,10 @@ WSClient 长连接 -> EventDispatcher im.message.receive_v1 -> GatewayIngestor -
 
 Gateway 层只负责接收和归一化事件，不直接参与 RAG 答案生成，避免平台细节污染知识库和检索层。
 
-当消息命中 `@ChatterCatcher` 时，Gateway 会在入库后触发问答流程，但检索时必须排除本次提问消息，避免把问题本身当作证据。回复链路为：
+当消息命中 `@ChatterCatcher` 且被判定为提问时，Gateway 直接触发问答流程并跳过知识库入库，避免提问污染检索语料。回复链路为：
 
 ```text
-@消息 -> 入库 -> 排除当前消息 -> 混合检索 -> askWithRag -> 飞书 message.create 回复群聊
+@消息 -> 提问判定 -> 混合检索 -> askWithRag -> 飞书 message.create 回复群聊（跳过入库）
 ```
 
 必需事件：
@@ -420,11 +415,12 @@ im.message.receive_v1
 
 ## 配置
 
-配置必须能从这些入口编辑：
+配置当前可从这些入口编辑：
 
 - `chattercatcher setup`
 - `chattercatcher settings`
-- 本地 Web UI
+
+本地 Web UI 的配置编辑能力尚未实现（Web UI 仅展示状态和提供操作入口）。
 
 关键字段：
 
