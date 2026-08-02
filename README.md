@@ -317,8 +317,6 @@ http://127.0.0.1:3878
 | `chattercatcher files jobs` | 查看文件解析任务 |
 | `chattercatcher export --out <file>` | 导出本地知识库数据，不含密钥 |
 | `chattercatcher restore <file>` | 从导出文件恢复 |
-| `chattercatcher cron list` | 列出所有定时任务 |
-| `chattercatcher cron run` | 手动触发到期定时任务 |
 | `chattercatcher profiles list` | 列出所有人物档案 |
 | `chattercatcher profiles show <personId>` | 查看指定人物档案详情 |
 
@@ -360,12 +358,7 @@ chattercatcher process episodes
 
 定时任务限定在当前群聊内，不能跨群查看或操作其他群的任务。
 
-CLI 管理：
-
-```bash
-chattercatcher cron list          # 查看所有定时任务
-chattercatcher cron run           # 手动触发到期任务
-```
+除了群内管理，也可以在本地 Web UI 的定时任务板块查看和删除任务；定时任务由 Gateway 进程内的调度器到期自动触发，无独立 CLI 子命令。
 
 ---
 

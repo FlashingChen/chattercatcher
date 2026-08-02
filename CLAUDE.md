@@ -51,8 +51,6 @@ chattercatcher index rebuild --limit 10000
 chattercatcher files add <path...>
 chattercatcher files jobs --limit 50
 chattercatcher files list --limit 50
-chattercatcher cron list
-chattercatcher cron run
 chattercatcher export --out ./backup.json
 chattercatcher restore ./backup.json --replace
 chattercatcher data delete message <messageId> --yes
