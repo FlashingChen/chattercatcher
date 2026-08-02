@@ -82,12 +82,12 @@ SQLite 同时负责结构化元数据、关键词召回和本地 embedding 向�
 - PPTX：`jszip` 解压 XML，按幻灯片顺序提取 `<a:t>` 文字。
 - HTML/HTM：`cheerio` 剥除 script/style/nav 等样板后提取正文。
 - 纯文本类：txt、md、json、csv、tsv、log。
+- 图片 OCR / 转述：基于视觉模型的远程 API（OpenAI-compatible chat completions）。`describeImage` 返回转述摘要与 `extractedText`（图片文字原文），两者都进入派生消息供检索引用。
+- 音频转写：独立的 OpenAI-compatible `transcription` 配置段，走远程 `/audio/transcriptions` 端点（multipart 上传音频），转写文本写入 `audio_transcript` 派生消息进入知识库。
 
 规划中（尚未实现）：
 
 - HTML 网页链接抓取：抓取聊天消息里的 URL（涉及出网请求与隐私，待裁决）。
-- OCR：可配置路径，使用 Tesseract.js 或基于视觉模型的 OCR。
-- 音频：先支持可配置的 OpenAI-compatible transcription，之后支持本地 Whisper。
 
 ## 本地数据布局
 
@@ -288,11 +288,12 @@ finished_at
 
 ### 其他已实现表
 
-- `image_multimodal_tasks`：图片多模态转述任务。
+- `image_multimodal_tasks`：图片多模态转述任务（含 OCR extractedText）。
+- `audio_transcription_tasks`：语音转写任务。
 - `cron_jobs`：群内自然语言定时任务。
 - `feishu_chat_members`：飞书群成员昵称缓存。
 
-通用 `jobs` 表未实现，任务按类型分表（file_jobs、image_multimodal_tasks、cron_jobs）。
+通用 `jobs` 表未实现，任务按类型分表（file_jobs、image_multimodal_tasks、audio_transcription_tasks、cron_jobs）。
 
 ## RAG 设计
 

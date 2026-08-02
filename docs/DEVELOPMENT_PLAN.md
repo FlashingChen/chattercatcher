@@ -76,8 +76,8 @@
 - XLSX 解析。
 - PPTX 解析。
 - 纯文本和 Markdown 解析。
-- 图片 OCR 路径。
-- 语音转写路径。
+- 图片 OCR 路径（已完成：视觉模型远程 API 返回 extractedText 图片原文）。
+- 语音转写路径（已完成：OpenAI-compatible 远程 /audio/transcriptions 端点）。
 - 链接元数据提取。
 - chunking pipeline。
 - 索引任务队列。

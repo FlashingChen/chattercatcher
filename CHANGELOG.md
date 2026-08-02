@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- 语音转写：飞书语音自动转写为文字进入知识库，支持检索与引用。走 OpenAI-compatible 远程 `/audio/transcriptions` 端点（独立 `transcription` 配置段），转写文本 100% 来自模型返回，失败自动重试三次后标失败。
+- 图片 OCR：`describeImage` 增加 `extractedText` 字段，图片中的文字原文提取后与转述摘要一起写入派生消息，图内文字可被检索。
 - 文件解析新增三种格式：XLSX（支持共享字符串与多工作表，中文不乱码）、PPTX（按幻灯片顺序提取每页文字）、HTML/HTM（剥除 script/style/nav 等样板后提取正文）。
 
 ## [0.2.7] - 2026-05-30
