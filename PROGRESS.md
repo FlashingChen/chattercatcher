@@ -24,3 +24,9 @@
 - describeImage prompt 要求 JSON 返回 extractedText；解析函数校验可选字段（非字符串报错、空则省略）。
 - worker 把非空 extractedText 拼进派生消息（`[图片原文] ...`），summary 不变；空时行为一字不差。
 - 现有 multimodal 测试零修改；新增 5 用例。全量 68 文件/322 测试全绿，skipped=0。
+
+## 任务 4（已完成）
+
+- docs/TECHNICAL_ARCHITECTURE.md：OCR/音频从「规划中」移到已实现，注明走远程 API；新增 audio_transcription_tasks 表说明。DEVPLAN M2 两项标注完成。CHANGELOG Unreleased 记录新增。
+- 反向验证两次红→绿均完成：(1) audio 分支不入队 → gateway 音频用例变红（audioTask undefined）→ 还原全绿；(2) 删 extractedText 写入行 → OCR 用例变红（搜索无结果）→ 还原全绿。
+- 最终全量：npm test 68 文件/322 测试全绿 skipped=0；lint、build 全绿；工作区无漂移。
