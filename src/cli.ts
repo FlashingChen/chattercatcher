@@ -92,6 +92,18 @@ async function promptForConfiguration(config: AppConfig, secrets: AppSecrets): P
     message: "Multimodal Model（可留空）",
     default: config.multimodal.model,
   });
+  const transcriptionBaseUrl = await input({
+    message: "Transcription Base URL（OpenAI-compatible 语音转写，可留空）",
+    default: config.transcription.baseUrl,
+  });
+  const transcriptionApiKey = await password({
+    message: "Transcription API Key（可留空）",
+    mask: "*",
+  });
+  const transcriptionModel = await input({
+    message: "Transcription Model（可留空）",
+    default: config.transcription.model,
+  });
   const dimension = await number({
     message: "Embedding 维度（不知道可先留空）",
     default: config.embedding.dimension ?? undefined,
@@ -105,6 +117,15 @@ async function promptForConfiguration(config: AppConfig, secrets: AppSecrets): P
 
   secrets.multimodal = {
     apiKey: multimodalApiKey || secrets.multimodal.apiKey,
+  };
+
+  config.transcription = {
+    baseUrl: transcriptionBaseUrl,
+    model: transcriptionModel,
+  };
+
+  secrets.transcription = {
+    apiKey: transcriptionApiKey || secrets.transcription.apiKey,
   };
 
   config.web.port =
@@ -144,6 +165,7 @@ function printSettings(config: AppConfig, secrets: AppSecrets): void {
         llm: { apiKey: maskSecret(secrets.llm.apiKey) },
         embedding: { apiKey: maskSecret(secrets.embedding.apiKey) },
         multimodal: { apiKey: maskSecret(secrets.multimodal.apiKey) },
+        transcription: { apiKey: maskSecret(secrets.transcription.apiKey) },
       },
     },
     null,
