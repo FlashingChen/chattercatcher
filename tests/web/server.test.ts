@@ -691,4 +691,58 @@ describe("web server", () => {
       await app.close();
     }
   });
+
+  it("提供导出数据 API", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = path.join(testDir, "data");
+    const database = openDatabase(config);
+    try {
+      new MessageRepository(database).ingest({
+        platform: "dev",
+        platformChatId: "family",
+        chatName: "家庭群",
+        platformMessageId: "export-1",
+        senderId: "mom",
+        senderName: "老妈",
+        messageType: "text",
+        text: "导出测试消息。",
+        sentAt: "2026-04-25T08:00:00.000Z",
+      });
+    } finally {
+      database.close();
+    }
+
+    const secrets = createDefaultSecrets();
+    secrets.web.actionToken = "test-token";
+    await saveSecrets(secrets);
+    const app = createWebApp(config, { version: "0.1.test" });
+    try {
+      const unauthorized = await app.inject({ method: "POST", url: "/api/export" });
+      expect(unauthorized.statusCode).toBe(403);
+      expect(unauthorized.json()).toMatchObject({ ok: false, message: "Web 操作未授权。" });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/export",
+        headers: { cookie: "chattercatcher_web_token=test-token" },
+      });
+      expect(response.statusCode).toBe(200);
+      const result = response.json();
+      expect(result.ok).toBe(true);
+      expect(result.messages).toBe(1);
+      expect(result.chats).toBe(1);
+      const outputPath = result.outputPath as string;
+      expect(outputPath).toContain(path.join(testDir, "data", "exports"));
+      const stat = await fs.stat(outputPath);
+      expect(stat.isFile()).toBe(true);
+
+      const content = await fs.readFile(outputPath, "utf8");
+      // 导出文件不含密钥/token
+      expect(content).not.toContain("test-token");
+      expect(content).not.toContain("apiKey");
+      expect(content).toContain("导出测试消息。");
+    } finally {
+      await app.close();
+    }
+  });
 });

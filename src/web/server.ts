@@ -6,6 +6,7 @@ import type { AppConfig, AppSecrets } from "../config/schema.js";
 import { CronJobRepository } from "../cron/jobs.js";
 import { openDatabase } from "../db/database.js";
 import { EpisodeRepository } from "../episodes/repository.js";
+import { exportLocalData } from "../export/data-export.js";
 import { FileJobRepository } from "../files/jobs.js";
 import { getGatewayStatus } from "../gateway/index.js";
 import { MessageRepository } from "../messages/repository.js";
@@ -1595,6 +1596,29 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
       config: nextConfig,
       secrets: maskedSecretsForApi(nextSecrets),
     };
+  });
+
+  app.post("/api/export", async (request, reply) => {
+    await tokenReady;
+    if (!isAuthorizedWebAction(request, webActionToken)) {
+      reply.code(403);
+      return { ok: false, message: "Web 操作未授权。" };
+    }
+
+    try {
+      const result = await exportLocalData({ config, database });
+      return {
+        ok: true,
+        outputPath: result.outputPath,
+        chats: result.chats,
+        messages: result.messages,
+        chunks: result.chunks,
+        fileJobs: result.fileJobs,
+      };
+    } catch (error) {
+      reply.code(500);
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
   });
 
   app.post("/api/process/messages", async (request, reply) => {
