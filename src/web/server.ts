@@ -284,6 +284,16 @@ function buildHtml(): string {
     .settings-label { font-size: 14px; font-weight: 500; color: var(--text-primary); }
     .settings-value { font-size: 14px; color: var(--text-secondary); font-family: var(--font-mono); }
     .settings-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .settings-input {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border);
+      color: var(--text-primary); border-radius: var(--radius-sm);
+      padding: 6px 10px; font-size: 13px; font-family: var(--font-mono);
+      min-width: 200px; max-width: 320px;
+    }
+    .settings-input:focus { outline: none; border-color: var(--accent); }
+    .settings-select { min-width: 120px; max-width: 200px; }
+    .settings-checkbox { width: 18px; height: 18px; accent-color: var(--accent); }
+    .settings-action-result { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); margin-top: var(--space-sm); word-break: break-all; }
     .mobile-nav {
       display: none; position: fixed; bottom: 0; left: 0; right: 0;
       padding: var(--space-sm); z-index: 100; flex-direction: row; justify-content: space-around;
@@ -507,10 +517,19 @@ function buildHtml(): string {
       <div class="settings-group glass">
         <h3 style="font-size: 16px; font-weight: 600; margin-bottom: var(--space-md);">操作</h3>
         <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
-          <button class="btn btn-primary" onclick="processNow()">
+          <button class="btn btn-primary" id="btn-export-data" onclick="exportNow()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导出数据
+          </button>
+          <button class="btn btn-primary" id="btn-rebuild-index" onclick="processNow()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            重建索引
+          </button>
+          <button class="btn" onclick="processNow()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             立即处理消息索引
           </button>
+          <div id="export-result" class="settings-action-result" style="display: none;"></div>
           <div style="font-size: 12px; color: var(--text-muted); padding: var(--space-sm); background: rgba(255,255,255,0.03); border-radius: var(--radius-sm);">
             运行 CLI 命令进行更多操作：
             <div style="font-family: var(--font-mono); margin-top: var(--space-xs); line-height: 1.8;">
@@ -582,6 +601,7 @@ function buildHtml(): string {
       if (view === "tasks") renderTasksView();
       if (view === "qa-logs") renderQaLogsView();
       if (view === "persons") renderPersonsView();
+      if (view === "settings") void loadSettingsConfig();
     }
 
     document.querySelectorAll(".nav-item, .mobile-nav-item").forEach(function(el) {
@@ -608,6 +628,19 @@ function buildHtml(): string {
 
     async function postJson(path, options) {
       var response = await fetch(path, Object.assign({ method: "POST" }, options || {}));
+      var result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || result.reason || "请求失败");
+      }
+      return result;
+    }
+
+    async function putJson(path, body) {
+      var response = await fetch(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body || {})
+      });
       var result = await response.json();
       if (!response.ok) {
         throw new Error(result.message || result.reason || "请求失败");
@@ -1024,16 +1057,154 @@ function buildHtml(): string {
       el.innerHTML = html;
     }
 
-    function renderSettings(status) {
+    var CONFIG_FIELDS = [
+      { group: "feishu", key: "domain", label: "domain", type: "select", options: ["feishu", "lark"] },
+      { group: "feishu", key: "groupPolicy", label: "groupPolicy", type: "select", options: ["open", "allowlist", "disabled"] },
+      { group: "feishu", key: "requireMention", label: "requireMention", type: "checkbox" },
+      { group: "llm", key: "baseUrl", label: "baseUrl" },
+      { group: "llm", key: "model", label: "model" },
+      { group: "embedding", key: "baseUrl", label: "baseUrl" },
+      { group: "embedding", key: "model", label: "model" },
+      { group: "multimodal", key: "baseUrl", label: "baseUrl" },
+      { group: "multimodal", key: "model", label: "model" },
+      { group: "transcription", key: "baseUrl", label: "baseUrl" },
+      { group: "transcription", key: "model", label: "model" },
+      { group: "schedules", key: "indexing", label: "indexing\uff08cron\uff09" },
+      { group: "episodes", key: "windowMinutes", label: "windowMinutes", type: "number" },
+      { group: "episodes", key: "quietMinutes", label: "quietMinutes", type: "number" }
+    ];
+    var SECRET_FIELDS = [
+      { group: "feishu", key: "appSecret", label: "appSecret" },
+      { group: "llm", key: "apiKey", label: "apiKey" },
+      { group: "embedding", key: "apiKey", label: "apiKey" },
+      { group: "multimodal", key: "apiKey", label: "apiKey" },
+      { group: "transcription", key: "apiKey", label: "apiKey" }
+    ];
+    var SETTINGS_GROUP_TITLES = { feishu: "\u98de\u4e66", llm: "LLM", embedding: "Embedding", multimodal: "\u591a\u6a21\u6001", transcription: "\u8bed\u97f3\u8f6c\u5199", schedules: "\u5b9a\u65f6\u4efb\u52a1", episodes: "\u4f1a\u8bdd\u8bb0\u5fc6" };
+
+    function settingsGroupTitle(group) {
+      return SETTINGS_GROUP_TITLES[group] || group;
+    }
+
+    function buildConfigField(field, sectionValue) {
+      var value = sectionValue && typeof sectionValue === "object" ? sectionValue[field.key] : undefined;
+      var name = "config-" + field.group + "-" + field.key;
+      if (field.type === "select") {
+        var opts = "";
+        for (var i = 0; i < field.options.length; i++) {
+          var selected = String(value) === field.options[i] ? " selected" : "";
+          opts += '<option value="' + escapeHtml(field.options[i]) + '"' + selected + '>' + escapeHtml(field.options[i]) + '</option>';
+        }
+        return '<div class="settings-item"><div><div class="settings-label">' + escapeHtml(field.key) + '</div></div><select class="settings-input settings-select" id="' + name + '" name="' + name + '">' + opts + '</select></div>';
+      }
+      if (field.type === "checkbox") {
+        var checked = value ? " checked" : "";
+        return '<div class="settings-item"><div><div class="settings-label">' + escapeHtml(field.key) + '</div></div><input type="checkbox" class="settings-checkbox" id="' + name + '" name="' + name + '"' + checked + '></div>';
+      }
+      var inputType = field.type === "number" ? "number" : "text";
+      var currentValue = value == null ? "" : String(value);
+      return '<div class="settings-item"><div><div class="settings-label">' + escapeHtml(field.key) + '</div></div><input type="' + inputType + '" class="settings-input" id="' + name + '" name="' + name + '" value="' + escapeHtml(currentValue) + '"></div>';
+    }
+
+    function buildSecretField(field) {
+      var name = "secret-" + field.group + "-" + field.key;
+      return '<div class="settings-item"><div><div class="settings-label">' + escapeHtml(field.key) + '</div><div class="settings-desc">' + escapeHtml(settingsGroupTitle(field.group)) + ' \u5bc6\u94a5</div></div><input type="password" class="settings-input" id="' + name + '" name="' + name + '" placeholder="\u7559\u7a7a\u5219\u4e0d\u4fee\u6539" autocomplete="new-password"></div>';
+    }
+
+    function renderSettingsConfig(data) {
       var el = document.getElementById("settings-config");
       var html = '<h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-md);">\u7cfb\u7edf\u914d\u7f6e</h3>';
-      html += '<div style="display:flex;flex-direction:column;">';
-      html += '<div class="settings-item"><div><div class="settings-label">Web UI</div><div class="settings-desc">' + escapeHtml((status.web && status.web.host ? status.web.host : "127.0.0.1") + ":" + (status.web && status.web.port ? status.web.port : "3878")) + '</div></div></div>';
-      html += '<div class="settings-item"><div><div class="settings-label">Gateway</div><div class="settings-desc">' + (status.gateway.configured ? "\u5df2\u914d\u7f6e" : "\u672a\u914d\u7f6e") + '</div></div></div>';
-      html += '<div class="settings-item"><div><div class="settings-label">RAG \u6a21\u5f0f</div><div class="settings-desc">\u5f3a\u5236\u5148\u68c0\u7d22\u8bc1\u636e\uff0c\u7981\u6b62\u5168\u91cf\u4e0a\u4e0b\u6587\u5806\u53e0</div></div></div>';
-      html += '<div class="settings-item"><div><div class="settings-label">\u6570\u636e\u76ee\u5f55</div><div class="settings-desc">SQLite + \u672c\u5730\u6587\u4ef6</div></div></div>';
-      html += '</div>';
+      html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:var(--space-sm);">\u4fdd\u5b58\u540e gateway \u91cd\u542f\u751f\u6548\uff1b\u5bc6\u94a5\u7559\u7a7a\u8868\u793a\u4e0d\u4fee\u6539\u3002</div>';
+      html += '<form id="config-form">';
+      var groups = ["feishu", "llm", "embedding", "multimodal", "transcription", "schedules", "episodes"];
+      var cfg = data.config || {};
+      for (var gi = 0; gi < groups.length; gi++) {
+        var group = groups[gi];
+        html += '<div style="margin-bottom:var(--space-sm);">';
+        html += '<div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-xs);">' + escapeHtml(settingsGroupTitle(group)) + '</div>';
+        for (var i = 0; i < CONFIG_FIELDS.length; i++) {
+          if (CONFIG_FIELDS[i].group !== group) continue;
+          html += buildConfigField(CONFIG_FIELDS[i], cfg[group]);
+        }
+        for (var si = 0; si < SECRET_FIELDS.length; si++) {
+          if (SECRET_FIELDS[si].group !== group) continue;
+          html += buildSecretField(SECRET_FIELDS[si]);
+        }
+        html += '</div>';
+      }
+      html += '<button type="submit" class="btn btn-primary" id="btn-save-config">\u4fdd\u5b58\u914d\u7f6e</button>';
+      html += '<div id="config-save-status" class="settings-action-result"></div>';
+      html += '</form>';
       el.innerHTML = html;
+      var form = document.getElementById("config-form");
+      if (form) {
+        form.addEventListener("submit", function(ev) { ev.preventDefault(); void saveSettingsConfig(); });
+      }
+    }
+
+    async function loadSettingsConfig() {
+      try {
+        var data = await fetchJson("/api/config");
+        renderSettingsConfig(data);
+      } catch (error) {
+        console.error("\u52a0\u8f7d\u914d\u7f6e\u5931\u8d25:", error);
+        showToast(error instanceof Error ? error.message : String(error), "error");
+      }
+    }
+
+    async function saveSettingsConfig() {
+      var body = { config: {}, secrets: {} };
+      for (var i = 0; i < CONFIG_FIELDS.length; i++) {
+        var field = CONFIG_FIELDS[i];
+        var el = document.getElementById("config-" + field.group + "-" + field.key);
+        if (!el) continue;
+        if (!body.config[field.group]) body.config[field.group] = {};
+        if (field.type === "checkbox") {
+          body.config[field.group][field.key] = el.checked;
+        } else if (field.type === "number") {
+          if (el.value === "") continue;
+          var num = Number(el.value);
+          if (!Number.isFinite(num)) continue;
+          body.config[field.group][field.key] = num;
+        } else {
+          body.config[field.group][field.key] = el.value;
+        }
+      }
+      for (var si = 0; si < SECRET_FIELDS.length; si++) {
+        var sf = SECRET_FIELDS[si];
+        var sel = document.getElementById("secret-" + sf.group + "-" + sf.key);
+        if (!sel || !sel.value) continue;
+        if (!body.secrets[sf.group]) body.secrets[sf.group] = {};
+        body.secrets[sf.group][sf.key] = sel.value;
+      }
+      try {
+        var result = await putJson("/api/config", body);
+        var statusEl = document.getElementById("config-save-status");
+        var message = result.message || "\u5df2\u4fdd\u5b58\uff0cgateway \u91cd\u542f\u540e\u751f\u6548\u3002";
+        if (statusEl) statusEl.textContent = message;
+        showToast(message, "success");
+        await loadSettingsConfig();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), "error");
+      }
+    }
+
+    async function exportNow() {
+      var btn = document.getElementById("btn-export-data");
+      if (btn) { btn.disabled = true; }
+      showToast("\u6b63\u5728\u5bfc\u51fa\u6570\u636e...", "info");
+      try {
+        var result = await postJson("/api/export");
+        var text = "\u5bfc\u51fa\u5b8c\u6210\uff1a" + result.outputPath + "\uff08\u7fa4\u804a=" + result.chats + "\uff0c\u6d88\u606f=" + result.messages + "\uff0cchunks=" + result.chunks + "\uff0c\u6587\u4ef6\u4efb\u52a1=" + result.fileJobs + "\uff09";
+        var el = document.getElementById("export-result");
+        if (el) { el.textContent = text; el.style.display = "block"; }
+        showToast("\u5bfc\u51fa\u5b8c\u6210\uff1a" + result.outputPath, "success");
+        await load();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), "error");
+      } finally {
+        if (btn) { btn.disabled = false; }
+      }
     }
 
     async function loadSection(path, setter) {
@@ -1046,8 +1217,8 @@ function buildHtml(): string {
         statusData = data;
         renderMetrics(data);
         renderSystemStatus(data);
-        renderSettings(data);
       });
+      if (currentView === "settings") void loadSettingsConfig();
       await loadSection("/api/messages/recent?limit=50", function(data) { allMessages = data.items || []; renderRecentMessages(allMessages); });
       await loadSection("/api/episodes?limit=20", function(data) { allEpisodes = data.items || []; renderRecentEpisodes(allEpisodes); });
       await loadSection("/api/files", function(data) { allFiles = data.items || []; });

@@ -745,4 +745,27 @@ describe("web server", () => {
       await app.close();
     }
   });
+
+  it("设置页包含配置表单、导出与重建索引入口", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const app = createWebApp(config);
+    try {
+      const html = await app.inject({ method: "GET", url: "/" });
+      expect(html.statusCode).toBe(200);
+      expect(html.body).toContain("导出数据");
+      expect(html.body).toContain("重建索引");
+      expect(html.body).toContain('id="btn-export-data"');
+      expect(html.body).toContain('id="btn-rebuild-index"');
+      expect(html.body).toContain("exportNow");
+      expect(html.body).toContain("留空则不修改");
+      expect(html.body).toContain("config-form");
+      expect(html.body).toContain("saveSettingsConfig");
+      expect(html.body).toContain("/api/export");
+      expect(html.body).toContain("/api/config");
+      expect(html.body).toContain("method: \"PUT\"");
+    } finally {
+      await app.close();
+    }
+  });
 });
