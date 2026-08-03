@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-03
+
 ### Added
 - 文件溯源：`file_jobs` 持久化文件内容 `content_sha256` 与飞书 `platform_file_key`，存量行迁移时按 stored_path 文件回填 sha256（文件缺失则留空，不编造），飞书附件路径把 `attachment.fileKey` 传入落列。
 - 开机自启服务：新增 `chattercatcher service install/status/uninstall`。macOS 生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`（launchd，KeepAlive + RunAtLoad，日志写 logs/）并真机验证；Linux 生成 `~/.config/systemd/user/chattercatcher-gateway.service` 并打印 enable --now 指引（静态交付，未真机验证）。已有同名非本项目服务文件时拒绝覆盖。
