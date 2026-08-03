@@ -55,6 +55,7 @@ flowchart TD
 
 - 单文件 Fastify 服务：`src/web/server.ts`，内联原生 HTML/JS，无独立前端构建链。
 - 直接读取本地 SQLite 状态，提供状态看板、消息、群聊、文件库、episode、QA trace、人物档案页面和本地操作入口。
+- 设置页支持配置编辑（`GET/PUT /api/config`）、数据导出（`POST /api/export`）与重建索引（`POST /api/process/messages`）。
 
 ### 存储
 
@@ -421,8 +422,14 @@ im.message.receive_v1
 
 - `chattercatcher setup`
 - `chattercatcher settings`
+- 本地 Web UI 设置页（已实现：`GET /api/config` 读取脱敏配置，`PUT /api/config` 部分更新白名单内字段）
 
-本地 Web UI 的配置编辑能力尚未实现（Web UI 仅展示状态和提供操作入口）。
+Web UI 配置编辑说明：
+
+- 可改范围：feishu 的 domain/groupPolicy/requireMention、llm/embedding/multimodal/transcription 的 baseUrl+model+apiKey、schedules.indexing、episodes 时长。
+- `web.host`/`web.port`/`storage.dataDir` 不允许通过 Web UI 修改（暴露与迁移风险），仍走 CLI。
+- secret 字段留空表示不修改；任何接口响应只返回脱敏值，不暴露完整密钥或 web.actionToken。
+- 保存后提示「gateway 重启后生效」，Web 服务不热加载。
 
 关键字段：
 
@@ -484,6 +491,12 @@ chattercatcher web start
 `data delete` 删除 SQLite 知识库记录、关联 chunks、SQLite FTS 条目、SQLite embedding 向量和文件解析任务。删除文件知识源时，只会清理位于 `storage.dataDir` 内的本地保存文件，不会删除外部源文件。
 
 `process messages` 立即运行消息索引处理。SQLite FTS 在消息入库时已经即时更新；该命令主要用于立刻把消息 chunks 写入 SQLite embedding 向量索引，等价于手动触发原本可由定时任务承担的处理动作。Web UI 首页的“立即处理”按钮调用同一条 API。
+
+Web UI 设置页（已实现）额外提供浏览器入口：
+
+- 配置编辑：设置页表单调用 `GET /api/config` 与 `PUT /api/config`，可改字段见「配置」章节白名单；secret 留空即不修改。
+- 导出数据：`POST /api/export` 复用 `exportLocalData`，导出到 `storage.dataDir/exports/`，文件与响应均不含密钥。
+- 重建索引：设置页「重建索引」按钮调用 `/api/process/messages`，与 CLI `index rebuild` / `process messages` 同一条处理路径（`processMessagesNow`）。
 
 ## 测试策略
 

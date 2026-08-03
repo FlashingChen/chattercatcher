@@ -134,7 +134,7 @@ ChatterCatcher 是一个早期 MVP。它已经具备飞书长连接接入、本�
 | 引用格式 | 展示"谁在什么时候说了什么"，避免暴露 `ou_` / `oc_` 等 opaque id |
 | 文件知识源 | 支持 txt、md、json、csv、tsv、log、docx、pdf、xlsx、pptx、html 导入和解析 |
 | CLI | setup、settings、doctor、gateway、process、index、files、export、restore、profiles |
-| Web UI | 本地状态看板、自动刷新、最近消息、群聊、文件库、人物档案和解析任务 |
+| Web UI | 本地状态看板、自动刷新、最近消息、群聊、文件库、人物档案和解析任务；设置页支持配置编辑、导出数据与重建索引 |
 | 隐私 | 配置与密钥分离；导出不包含 API Key、App Secret 或 token；会话摘要会脱敏疑似密钥 |
 | 数据管理 | 本地导出/恢复、按消息/文件/群删除本地知识库数据 |
 
