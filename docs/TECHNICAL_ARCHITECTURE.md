@@ -150,7 +150,7 @@ created_at
 
 ### file_jobs
 
-原设计的 `files` 表与任务队列合并为 `file_jobs`，同时承担文件元数据和解析任务状态；暂未持久化 `sha256` 和 `platform_file_key`。
+原设计的 `files` 表与任务队列合并为 `file_jobs`，同时承担文件元数据和解析任务状态。已持久化文件内容 `sha256`（内容溯源）与飞书 `platform_file_key`（平台文件溯源）：本地导入时 `content_sha256` 在文件拷贝后计算写入、`platform_file_key` 留空；飞书附件路径把 `attachment.fileKey` 传入落列。存量行迁移时会按 `stored_path` 文件补写 `content_sha256`（文件不存在则留空，不编造）。
 
 ```text
 id
@@ -164,6 +164,8 @@ bytes
 characters
 warnings_json
 error
+content_sha256
+platform_file_key
 created_at
 updated_at
 ```
@@ -484,7 +486,16 @@ chattercatcher data delete chat <chatId> --yes
 chattercatcher web start
 ```
 
-`gateway start` 以前台进程运行，并在 `~/.chattercatcher/gateway.pid` 写入运行记录。`gateway stop` 读取该 PID 文件发送停止信号；如果 PID 已过期，会清理陈旧记录。后台服务安装仍属于 M3 的 service 能力。
+`gateway start` 以前台进程运行，并在 `~/.chattercatcher/gateway.pid` 写入运行记录。`gateway stop` 读取该 PID 文件发送停止信号；如果 PID 已过期，会清理陈旧记录。
+
+### 开机自启服务（service）
+
+`chattercatcher service install / status / uninstall` 管理 gateway 开机自启：
+
+- macOS（launchd，已真机验证）：生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`，ProgramArguments 为 `node` + `dist/cli.js` 绝对路径 + `gateway start --foreground`，`KeepAlive` 保证崩溃自动拉起，`RunAtLoad` 开机自启，日志写入 `~/.chattercatcher/logs/gateway.log`。`status` 通过 `launchctl list` 如实上报安装/加载/运行状态；`uninstall` 执行 `launchctl bootout` 并删除 plist，同时停止本机 gateway 进程并清理 pid 记录。
+- Linux（systemd，静态交付，未真机验证）：生成 `~/.config/systemd/user/chattercatcher-gateway.service`，并打印 `systemctl --user daemon-reload && systemctl --user enable --now chattercatcher-gateway` 指引；`uninstall` 删除 unit 并提示 `disable --now`。
+
+安装时若 `~/Library/LaunchAgents` 存在同名但非本项目的服务文件，会拒绝覆盖并如实报告。
 
 `restore` 默认合并导入导出文件中的 chats、messages、message_chunks、message_chunk_embeddings 和 file_jobs，并重建 SQLite FTS。只有显式传入 `--replace` 时才会先清空当前本地知识库；恢复后如果使用语义检索，可以运行 `index rebuild` 重新生成 SQLite embedding 向量。
 
@@ -497,6 +508,38 @@ Web UI 设置页（已实现）额外提供浏览器入口：
 - 配置编辑：设置页表单调用 `GET /api/config` 与 `PUT /api/config`，可改字段见「配置」章节白名单；secret 留空即不修改。
 - 导出数据：`POST /api/export` 复用 `exportLocalData`，导出到 `storage.dataDir/exports/`，文件与响应均不含密钥。
 - 重建索引：设置页「重建索引」按钮调用 `/api/process/messages`，与 CLI `index rebuild` / `process messages` 同一条处理路径（`processMessagesNow`）。
+
+## Docker 运行
+
+根目录 `Dockerfile` 提供多阶段构建（构建阶段 `npm ci` + `npm run build`，运行阶段只带 `dist` 与生产依赖），基础镜像 `node:20-bookworm`（better-sqlite3 原生模块避免 alpine/slim 编译坑），`ENTRYPOINT ["node", "dist/cli.js"]`，默认 `CHATTERCATCHER_HOME=/data`，`EXPOSE 3878`。`.dockerignore` 排除 `data/`、`node_modules`、`.git`、`logs`、`config`、`.env` 等，镜像内不含任何密钥或用户数据。
+
+```bash
+docker build -t chattercatcher .
+# 查看帮助
+docker run --rm chattercatcher --help
+```
+
+数据必须通过挂载卷持久化，Web UI 访问宿主需在挂载卷配置 `web.host`（见下）：
+
+```bash
+mkdir -p ~/chattercatcher-data
+# 首次：写入配置文件（顶层对象为必需字段）
+cat > ~/chattercatcher-data/config.json <<'EOF'
+{
+  "feishu": {}, "llm": {}, "embedding": {}, "storage": {},
+  "schedules": {}, "web": { "host": "0.0.0.0", "port": 3878 }
+}
+EOF
+docker run -d --name chattercatcher \
+  -v ~/chattercatcher-data:/data \
+  -e CHATTERCATCHER_HOME=/data \
+  -p 3878:3878 \
+  chattercatcher web start
+# 验证
+curl http://127.0.0.1:3878/api/status
+```
+
+说明：Web UI 默认只监听 `127.0.0.1`（隐私优先）；Docker 端口映射 `-p` 到不了容器回环地址，因此要跨容器/宿主访问时需在挂载卷的 `config.json` 中把 `web.host` 设为 `0.0.0.0`。
 
 ## 测试策略
 

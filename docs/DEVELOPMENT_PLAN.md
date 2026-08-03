@@ -119,10 +119,11 @@
 - 备份和恢复。
 - 定时摘要。
 - 服务安装：
-  - Windows service。
-  - macOS launchd。
-  - Linux systemd。
-- 可选 Docker 部署。
+  - Windows service：本期不做。
+  - macOS launchd：已实现并真机验证（`chattercatcher service install/status/uninstall`，生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`）。
+  - Linux systemd：已实现（生成 `~/.config/systemd/user/chattercatcher-gateway.service`），静态交付，未真机验证。
+- 可选 Docker 部署：已实现（根目录多阶段 `Dockerfile`，`docker build` 后 `docker run` 即可运行）。
+- file_jobs 溯源列：已实现（`content_sha256` 文件内容 sha256、`platform_file_key` 飞书 file_key）。
 - parser 插件接口。
 
 ### 验收标准
@@ -131,7 +132,7 @@
 - 被覆盖的旧事实仍作为历史保留。
 - 用户能删除指定本地数据。
 - 数据可以导出和恢复（已完成：CLI `export`/`restore`；Web UI 设置页「导出数据」调用 `POST /api/export`）。
-- Gateway 可以作为后台服务运行。
+- Gateway 可以作为后台服务运行（已完成：macOS launchd 真机验证；Linux systemd 静态交付未真机验证）。
 - 定时摘要可以通过 CLI 或 Web UI 配置（已完成：Web UI 设置页配置表单可编辑 `schedules.indexing` 等白名单字段）。
 
 ### 自测

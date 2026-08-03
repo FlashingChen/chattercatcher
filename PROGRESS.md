@@ -28,4 +28,15 @@
 
 ## 任务 4：收尾接线
 
-（未开工）
+- 已更新：TECHNICAL_ARCHITECTURE（file_jobs 溯源列、service 能力 launchd 真机/systemd 未验证、新增 Docker 章节）、DEVELOPMENT_PLAN（M3 三项标已实现，systemd 标未验证）、README（service 与 Docker 用法）、CHANGELOG（Unreleased 记三项新增）。
+- 全量验证三连全绿：npm test 71 文件 / 335 测试 / skipped=0；npm run lint 与 npm run build 全绿；git status 只含白名单路径。
+
+## 反向验证（必做）
+
+1. 内容 sha256 计算改为固定字符串 → 新用例红（2 失败）；还原 → 绿（17 passed）。证据见对话。
+2. launchd uninstall 后 `service status` 如实报「launchd 服务未安装。installed=false / running=false」，非假绿灯。证据见对话。
+
+## 完成状态
+
+- 任务 1/2/3/4 全部完成；BLOCKED.md 无阻塞项。
+
