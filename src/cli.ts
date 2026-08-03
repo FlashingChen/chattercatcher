@@ -28,6 +28,7 @@ import { getGatewayStatus } from "./gateway/index.js";
 import { getGatewayLogPath, removeGatewayPidRecord, stopGatewayProcess, writeGatewayPidRecord } from "./gateway/runtime.js";
 import { createChatModel, createEmbeddingModel } from "./llm/openai-compatible.js";
 import { createMultimodalModel } from "./multimodal/openai-compatible.js";
+import { createTranscriptionModel } from "./multimodal/transcription-client.js";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { followLogFile, getLogsDirectory, normalizeLineCount, readLatestLogTail } from "./logs/reader.js";
 import { MessageRepository } from "./messages/repository.js";
@@ -41,6 +42,7 @@ import { askWithRag } from "./rag/qa-service.js";
 import { formatCitation } from "./rag/citations.js";
 import { updateChatterCatcher } from "./update/npm-updater.js";
 import { startWebServer } from "./web/server.js";
+import { getServiceStatus, installService, uninstallService } from "./service/manager.js";
 
 const program = new Command();
 
@@ -92,6 +94,18 @@ async function promptForConfiguration(config: AppConfig, secrets: AppSecrets): P
     message: "Multimodal Model（可留空）",
     default: config.multimodal.model,
   });
+  const transcriptionBaseUrl = await input({
+    message: "Transcription Base URL（OpenAI-compatible 语音转写，可留空）",
+    default: config.transcription.baseUrl,
+  });
+  const transcriptionApiKey = await password({
+    message: "Transcription API Key（可留空）",
+    mask: "*",
+  });
+  const transcriptionModel = await input({
+    message: "Transcription Model（可留空）",
+    default: config.transcription.model,
+  });
   const dimension = await number({
     message: "Embedding 维度（不知道可先留空）",
     default: config.embedding.dimension ?? undefined,
@@ -105,6 +119,15 @@ async function promptForConfiguration(config: AppConfig, secrets: AppSecrets): P
 
   secrets.multimodal = {
     apiKey: multimodalApiKey || secrets.multimodal.apiKey,
+  };
+
+  config.transcription = {
+    baseUrl: transcriptionBaseUrl,
+    model: transcriptionModel,
+  };
+
+  secrets.transcription = {
+    apiKey: transcriptionApiKey || secrets.transcription.apiKey,
   };
 
   config.web.port =
@@ -144,6 +167,7 @@ function printSettings(config: AppConfig, secrets: AppSecrets): void {
         llm: { apiKey: maskSecret(secrets.llm.apiKey) },
         embedding: { apiKey: maskSecret(secrets.embedding.apiKey) },
         multimodal: { apiKey: maskSecret(secrets.multimodal.apiKey) },
+        transcription: { apiKey: maskSecret(secrets.transcription.apiKey) },
       },
     },
     null,
@@ -300,6 +324,13 @@ async function startGatewayForegroundCommand(): Promise<void> {
             model: createMultimodalModel(config, secrets),
           }
         : undefined,
+    audioTranscriptionProcessor:
+      config.transcription.baseUrl && config.transcription.model && secrets.transcription.apiKey
+        ? {
+            database,
+            model: createTranscriptionModel(config, secrets),
+          }
+        : undefined,
     indexingProcessor: {
       database,
     },
@@ -383,6 +414,24 @@ gateway.command("stop").description("停止 Gateway").action(() => {
 gateway.command("restart").description("重启 Gateway").action(async () => {
   console.log(stopGatewayProcess().message);
   await startGatewayCommand();
+});
+
+const service = program.command("service").description("管理 gateway 开机自启服务");
+
+service.command("install").description("安装 gateway 开机自启服务（macOS launchd 真机 / Linux systemd 静态）").action(() => {
+  const result = installService();
+  console.log(result.message);
+  if (result.platform === "unsupported") {
+    process.exitCode = 1;
+  }
+});
+
+service.command("status").description("查看开机自启服务状态").action(() => {
+  console.log(JSON.stringify(getServiceStatus(), null, 2));
+});
+
+service.command("uninstall").description("卸载并清理 gateway 开机自启服务").action(() => {
+  console.log(uninstallService().message);
 });
 
 const web = program.command("web").description("管理本地 Web UI");

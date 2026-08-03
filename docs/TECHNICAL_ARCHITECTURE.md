@@ -55,6 +55,7 @@ flowchart TD
 
 - 单文件 Fastify 服务：`src/web/server.ts`，内联原生 HTML/JS，无独立前端构建链。
 - 直接读取本地 SQLite 状态，提供状态看板、消息、群聊、文件库、episode、QA trace、人物档案页面和本地操作入口。
+- 设置页支持配置编辑（`GET/PUT /api/config`）、数据导出（`POST /api/export`）与重建索引（`POST /api/process/messages`）。
 
 ### 存储
 
@@ -78,15 +79,16 @@ SQLite 同时负责结构化元数据、关键词召回和本地 embedding 向�
 
 - PDF：`pdf-parse`。
 - DOCX：`mammoth`。
+- XLSX：`jszip` 解压 + `cheerio` 提取共享字符串与各工作表单元格文本。
+- PPTX：`jszip` 解压 XML，按幻灯片顺序提取 `<a:t>` 文字。
+- HTML/HTM：`cheerio` 剥除 script/style/nav 等样板后提取正文。
 - 纯文本类：txt、md、json、csv、tsv、log。
+- 图片 OCR / 转述：基于视觉模型的远程 API（OpenAI-compatible chat completions）。`describeImage` 返回转述摘要与 `extractedText`（图片文字原文），两者都进入派生消息供检索引用。
+- 音频转写：独立的 OpenAI-compatible `transcription` 配置段，走远程 `/audio/transcriptions` 端点（multipart 上传音频），转写文本写入 `audio_transcript` 派生消息进入知识库。
 
 规划中（尚未实现）：
 
-- XLSX：`xlsx`。
-- PPTX：先解压 XML 提取，之后再接专用 parser。
-- HTML/链接：`cheerio` 加 readability。
-- OCR：可配置路径，使用 Tesseract.js 或基于视觉模型的 OCR。
-- 音频：先支持可配置的 OpenAI-compatible transcription，之后支持本地 Whisper。
+- HTML 网页链接抓取：抓取聊天消息里的 URL（涉及出网请求与隐私，待裁决）。
 
 ## 本地数据布局
 
@@ -148,7 +150,7 @@ created_at
 
 ### file_jobs
 
-原设计的 `files` 表与任务队列合并为 `file_jobs`，同时承担文件元数据和解析任务状态；暂未持久化 `sha256` 和 `platform_file_key`。
+原设计的 `files` 表与任务队列合并为 `file_jobs`，同时承担文件元数据和解析任务状态。已持久化文件内容 `sha256`（内容溯源）与飞书 `platform_file_key`（平台文件溯源）：本地导入时 `content_sha256` 在文件拷贝后计算写入、`platform_file_key` 留空；飞书附件路径把 `attachment.fileKey` 传入落列。存量行迁移时会按 `stored_path` 文件补写 `content_sha256`（文件不存在则留空，不编造）。
 
 ```text
 id
@@ -162,6 +164,8 @@ bytes
 characters
 warnings_json
 error
+content_sha256
+platform_file_key
 created_at
 updated_at
 ```
@@ -287,11 +291,12 @@ finished_at
 
 ### 其他已实现表
 
-- `image_multimodal_tasks`：图片多模态转述任务。
+- `image_multimodal_tasks`：图片多模态转述任务（含 OCR extractedText）。
+- `audio_transcription_tasks`：语音转写任务。
 - `cron_jobs`：群内自然语言定时任务。
 - `feishu_chat_members`：飞书群成员昵称缓存。
 
-通用 `jobs` 表未实现，任务按类型分表（file_jobs、image_multimodal_tasks、cron_jobs）。
+通用 `jobs` 表未实现，任务按类型分表（file_jobs、image_multimodal_tasks、audio_transcription_tasks、cron_jobs）。
 
 ## RAG 设计
 
@@ -419,8 +424,14 @@ im.message.receive_v1
 
 - `chattercatcher setup`
 - `chattercatcher settings`
+- 本地 Web UI 设置页（已实现：`GET /api/config` 读取脱敏配置，`PUT /api/config` 部分更新白名单内字段）
 
-本地 Web UI 的配置编辑能力尚未实现（Web UI 仅展示状态和提供操作入口）。
+Web UI 配置编辑说明：
+
+- 可改范围：feishu 的 domain/groupPolicy/requireMention、llm/embedding/multimodal/transcription 的 baseUrl+model+apiKey、schedules.indexing、episodes 时长。
+- `web.host`/`web.port`/`storage.dataDir` 不允许通过 Web UI 修改（暴露与迁移风险），仍走 CLI。
+- secret 字段留空表示不修改；任何接口响应只返回脱敏值，不暴露完整密钥或 web.actionToken。
+- 保存后提示「gateway 重启后生效」，Web 服务不热加载。
 
 关键字段：
 
@@ -475,13 +486,60 @@ chattercatcher data delete chat <chatId> --yes
 chattercatcher web start
 ```
 
-`gateway start` 以前台进程运行，并在 `~/.chattercatcher/gateway.pid` 写入运行记录。`gateway stop` 读取该 PID 文件发送停止信号；如果 PID 已过期，会清理陈旧记录。后台服务安装仍属于 M3 的 service 能力。
+`gateway start` 以前台进程运行，并在 `~/.chattercatcher/gateway.pid` 写入运行记录。`gateway stop` 读取该 PID 文件发送停止信号；如果 PID 已过期，会清理陈旧记录。
+
+### 开机自启服务（service）
+
+`chattercatcher service install / status / uninstall` 管理 gateway 开机自启：
+
+- macOS（launchd，已真机验证）：生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`，ProgramArguments 为 `node` + `dist/cli.js` 绝对路径 + `gateway start --foreground`，`KeepAlive` 保证崩溃自动拉起，`RunAtLoad` 开机自启，日志写入 `~/.chattercatcher/logs/gateway.log`。`status` 通过 `launchctl list` 如实上报安装/加载/运行状态；`uninstall` 执行 `launchctl bootout` 并删除 plist，同时停止本机 gateway 进程并清理 pid 记录。
+- Linux（systemd，静态交付，未真机验证）：生成 `~/.config/systemd/user/chattercatcher-gateway.service`，并打印 `systemctl --user daemon-reload && systemctl --user enable --now chattercatcher-gateway` 指引；`uninstall` 删除 unit 并提示 `disable --now`。
+
+安装时若 `~/Library/LaunchAgents` 存在同名但非本项目的服务文件，会拒绝覆盖并如实报告。
 
 `restore` 默认合并导入导出文件中的 chats、messages、message_chunks、message_chunk_embeddings 和 file_jobs，并重建 SQLite FTS。只有显式传入 `--replace` 时才会先清空当前本地知识库；恢复后如果使用语义检索，可以运行 `index rebuild` 重新生成 SQLite embedding 向量。
 
 `data delete` 删除 SQLite 知识库记录、关联 chunks、SQLite FTS 条目、SQLite embedding 向量和文件解析任务。删除文件知识源时，只会清理位于 `storage.dataDir` 内的本地保存文件，不会删除外部源文件。
 
 `process messages` 立即运行消息索引处理。SQLite FTS 在消息入库时已经即时更新；该命令主要用于立刻把消息 chunks 写入 SQLite embedding 向量索引，等价于手动触发原本可由定时任务承担的处理动作。Web UI 首页的“立即处理”按钮调用同一条 API。
+
+Web UI 设置页（已实现）额外提供浏览器入口：
+
+- 配置编辑：设置页表单调用 `GET /api/config` 与 `PUT /api/config`，可改字段见「配置」章节白名单；secret 留空即不修改。
+- 导出数据：`POST /api/export` 复用 `exportLocalData`，导出到 `storage.dataDir/exports/`，文件与响应均不含密钥。
+- 重建索引：设置页「重建索引」按钮调用 `/api/process/messages`，与 CLI `index rebuild` / `process messages` 同一条处理路径（`processMessagesNow`）。
+
+## Docker 运行
+
+根目录 `Dockerfile` 提供多阶段构建（构建阶段 `npm ci` + `npm run build`，运行阶段只带 `dist` 与生产依赖），基础镜像 `node:20-bookworm`（better-sqlite3 原生模块避免 alpine/slim 编译坑），`ENTRYPOINT ["node", "dist/cli.js"]`，默认 `CHATTERCATCHER_HOME=/data`，`EXPOSE 3878`。`.dockerignore` 排除 `data/`、`node_modules`、`.git`、`logs`、`config`、`.env` 等，镜像内不含任何密钥或用户数据。
+
+```bash
+docker build -t chattercatcher .
+# 查看帮助
+docker run --rm chattercatcher --help
+```
+
+数据必须通过挂载卷持久化，Web UI 访问宿主需在挂载卷配置 `web.host`（见下）：
+
+```bash
+mkdir -p ~/chattercatcher-data
+# 首次：写入配置文件（顶层对象为必需字段）
+cat > ~/chattercatcher-data/config.json <<'EOF'
+{
+  "feishu": {}, "llm": {}, "embedding": {}, "storage": {},
+  "schedules": {}, "web": { "host": "0.0.0.0", "port": 3878 }
+}
+EOF
+docker run -d --name chattercatcher \
+  -v ~/chattercatcher-data:/data \
+  -e CHATTERCATCHER_HOME=/data \
+  -p 3878:3878 \
+  chattercatcher web start
+# 验证
+curl http://127.0.0.1:3878/api/status
+```
+
+说明：Web UI 默认只监听 `127.0.0.1`（隐私优先）；Docker 端口映射 `-p` 到不了容器回环地址，因此要跨容器/宿主访问时需在挂载卷的 `config.json` 中把 `web.host` 设为 `0.0.0.0`。
 
 ## 测试策略
 

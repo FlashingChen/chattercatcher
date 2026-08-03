@@ -33,6 +33,7 @@ export interface DescribeImageResult {
   summary: string;
   isMeaningful: boolean;
   reason?: string;
+  extractedText?: string;
 }
 
 export interface MultimodalModel {

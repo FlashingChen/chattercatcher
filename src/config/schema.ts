@@ -30,6 +30,13 @@ export const appConfigSchema = z.object({
       model: z.string().default(""),
     }),
   ),
+  transcription: z.preprocess(
+    (value) => value ?? {},
+    z.object({
+      baseUrl: z.string().url().or(z.literal("")).default(""),
+      model: z.string().default(""),
+    }),
+  ),
   storage: z.object({
     dataDir: z.string().default(defaultDataDir),
   }),
@@ -64,6 +71,12 @@ export const appSecretsSchema = z.object({
       apiKey: z.string().default(""),
     }),
   ),
+  transcription: z.preprocess(
+    (value) => value ?? {},
+    z.object({
+      apiKey: z.string().default(""),
+    }),
+  ),
   web: z.preprocess(
     (value) => value ?? {},
     z.object({
@@ -81,6 +94,7 @@ export function createDefaultConfig(): AppConfig {
     llm: {},
     embedding: {},
     multimodal: {},
+    transcription: {},
     storage: {},
     web: {},
     schedules: {},
@@ -94,6 +108,7 @@ export function createDefaultSecrets(): AppSecrets {
     llm: {},
     embedding: {},
     multimodal: {},
+    transcription: {},
     web: {},
   });
 }

@@ -17,6 +17,8 @@ export interface IngestLocalFileResult {
   parser: string;
   warnings: string[];
   jobId?: string;
+  contentSha256?: string;
+  platformFileKey?: string;
 }
 
 export function isSupportedTextFile(filePath: string): boolean {
@@ -35,15 +37,21 @@ function stableStoredName(sourcePath: string, fileName: string): string {
   return `${digest}-${fileName}`;
 }
 
+async function hashFileContent(filePath: string): Promise<string> {
+  const content = await fs.readFile(filePath);
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
 export async function ingestLocalFile(input: {
   config: AppConfig;
   messages: MessageRepository;
   filePath: string;
   jobs?: FileJobRepository;
+  platformFileKey?: string;
 }): Promise<IngestLocalFileResult> {
   const sourcePath = path.resolve(input.filePath);
   const fileName = path.basename(sourcePath);
-  const jobId = input.jobs?.start({ sourcePath, fileName });
+  const jobId = input.jobs?.start({ sourcePath, fileName, platformFileKey: input.platformFileKey });
 
   try {
     ensureSupportedTextFile(sourcePath);
@@ -64,6 +72,8 @@ export async function ingestLocalFile(input: {
 
     const storedPath = path.join(fileDir, stableStoredName(sourcePath, fileName));
     await fs.copyFile(sourcePath, storedPath);
+
+    const contentSha256 = await hashFileContent(storedPath);
 
     const messageId = input.messages.ingest({
       platform: "local-file",
@@ -93,6 +103,7 @@ export async function ingestLocalFile(input: {
       bytes: stat.size,
       characters: text.length,
       warnings: parsed.warnings,
+      contentSha256,
     });
 
     return {
@@ -105,6 +116,8 @@ export async function ingestLocalFile(input: {
       parser: parsed.parser,
       warnings: parsed.warnings,
       jobId,
+      contentSha256,
+      platformFileKey: input.platformFileKey,
     };
   } catch (error) {
     if (jobId) {

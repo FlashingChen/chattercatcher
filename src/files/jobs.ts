@@ -16,6 +16,8 @@ export interface FileJobRecord {
   characters?: number;
   warnings: string[];
   error?: string;
+  contentSha256?: string;
+  platformFileKey?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,16 +42,16 @@ function parseWarnings(value: string): string[] {
 export class FileJobRepository {
   constructor(private readonly database: SqliteDatabase) {}
 
-  start(input: { sourcePath: string; fileName?: string }): string {
+  start(input: { sourcePath: string; fileName?: string; platformFileKey?: string }): string {
     const id = stableJobId(input.sourcePath);
     const now = nowIso();
     this.database
       .prepare(
         `
         INSERT INTO file_jobs (
-          id, source_path, file_name, status, warnings_json, created_at, updated_at
+          id, source_path, file_name, status, warnings_json, created_at, updated_at, platform_file_key
         )
-        VALUES (@id, @sourcePath, @fileName, 'processing', '[]', @createdAt, @updatedAt)
+        VALUES (@id, @sourcePath, @fileName, 'processing', '[]', @createdAt, @updatedAt, @platformFileKey)
         ON CONFLICT(id) DO UPDATE SET
           source_path = excluded.source_path,
           file_name = excluded.file_name,
@@ -60,6 +62,7 @@ export class FileJobRepository {
           characters = NULL,
           warnings_json = '[]',
           error = NULL,
+          platform_file_key = excluded.platform_file_key,
           updated_at = excluded.updated_at
       `,
       )
@@ -69,6 +72,7 @@ export class FileJobRepository {
         fileName: input.fileName ?? path.basename(input.sourcePath),
         createdAt: now,
         updatedAt: now,
+        platformFileKey: input.platformFileKey ?? null,
       });
     return id;
   }
@@ -81,6 +85,7 @@ export class FileJobRepository {
     bytes: number;
     characters: number;
     warnings: string[];
+    contentSha256?: string;
   }): void {
     this.database
       .prepare(
@@ -94,6 +99,7 @@ export class FileJobRepository {
           bytes = @bytes,
           characters = @characters,
           warnings_json = @warningsJson,
+          content_sha256 = @contentSha256,
           error = NULL,
           updated_at = @updatedAt
         WHERE id = @id
@@ -107,6 +113,7 @@ export class FileJobRepository {
         bytes: input.bytes,
         characters: input.characters,
         warningsJson: JSON.stringify(input.warnings),
+        contentSha256: input.contentSha256 ?? null,
         updatedAt: nowIso(),
       });
   }
@@ -151,6 +158,8 @@ export class FileJobRepository {
           characters,
           warnings_json AS warningsJson,
           error,
+          content_sha256 AS contentSha256,
+          platform_file_key AS platformFileKey,
           created_at AS createdAt,
           updated_at AS updatedAt
         FROM file_jobs
@@ -171,6 +180,8 @@ export class FileJobRepository {
       characters: number | null;
       warningsJson: string;
       error: string | null;
+      contentSha256: string | null;
+      platformFileKey: string | null;
       createdAt: string;
       updatedAt: string;
     }>;
@@ -187,6 +198,8 @@ export class FileJobRepository {
       characters: row.characters ?? undefined,
       warnings: parseWarnings(row.warningsJson),
       error: row.error ?? undefined,
+      contentSha256: row.contentSha256 ?? undefined,
+      platformFileKey: row.platformFileKey ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }));

@@ -2,32 +2,32 @@ import path from "node:path";
 import type { AppConfig } from "../config/schema.js";
 import type { EpisodeRepository, EpisodeWindow } from "../episodes/repository.js";
 import type { MessageRepository } from "../messages/repository.js";
-import type { ImageMultimodalTaskRepository } from "./tasks.js";
-import type { ImageMultimodalTaskRecord, MultimodalModel } from "./types.js";
+import type { AudioTranscriptionTaskRecord, TranscriptionModel } from "./audio-types.js";
+import type { AudioTranscriptionTaskRepository } from "./audio-tasks.js";
 
-export interface ImageMultimodalWorkerResult {
+export interface AudioTranscriptionWorkerResult {
   processed: number;
   succeeded: number;
   skipped: number;
   failed: number;
 }
 
-export interface ImageMultimodalWorkerOptions {
+export interface AudioTranscriptionWorkerOptions {
   config: AppConfig;
   messages: MessageRepository;
-  tasks: ImageMultimodalTaskRepository;
-  model: MultimodalModel;
-  multimodalModelName: string;
+  tasks: AudioTranscriptionTaskRepository;
+  model: TranscriptionModel;
+  transcriptionModelName: string;
   episodes?: EpisodeRepository;
   vectorIndexMessage?: (messageId: string) => Promise<{ chunks: number; vectors: number }>;
   summarizeEpisode?: (window: EpisodeWindow) => Promise<string>;
 }
 
-export class ImageMultimodalWorker {
-  constructor(private readonly options: ImageMultimodalWorkerOptions) {}
+export class AudioTranscriptionWorker {
+  constructor(private readonly options: AudioTranscriptionWorkerOptions) {}
 
-  async processPending(limit = 10): Promise<ImageMultimodalWorkerResult> {
-    const result: ImageMultimodalWorkerResult = { processed: 0, succeeded: 0, skipped: 0, failed: 0 };
+  async processPending(limit = 10): Promise<AudioTranscriptionWorkerResult> {
+    const result: AudioTranscriptionWorkerResult = { processed: 0, succeeded: 0, skipped: 0, failed: 0 };
     const pending = this.options.tasks.listPending(limit);
 
     for (const task of pending) {
@@ -38,40 +38,31 @@ export class ImageMultimodalWorker {
     return result;
   }
 
-  private async processTask(task: ImageMultimodalTaskRecord, result: ImageMultimodalWorkerResult): Promise<void> {
-    let running: ImageMultimodalTaskRecord;
+  private async processTask(task: AudioTranscriptionTaskRecord, result: AudioTranscriptionWorkerResult): Promise<void> {
+    let running: AudioTranscriptionTaskRecord;
     try {
       running = this.options.tasks.markRunning(task.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.startsWith("图片多模态任务状态无法更新：")) {
+      if (message.startsWith("语音转写任务状态无法更新：")) {
         return;
       }
       throw error;
     }
 
     try {
-      const imageFileName = path.basename(running.storedPath);
-      const described = await this.options.model.describeImage({
-        imagePath: running.storedPath,
+      const transcribed = await this.options.model.transcribe({
+        audioPath: running.storedPath,
         mimeType: running.mimeType,
-        context: `图片文件名：${imageFileName}`,
       });
 
-      if (!described.isMeaningful) {
-        this.options.tasks.markSkipped(running.id, described.reason || "多模态模型判定图片无意义。");
-        result.skipped += 1;
-        return;
-      }
-
-      const derivedMessageId = this.options.messages.createImageSummaryMessage({
+      const audioFileName = path.basename(running.storedPath);
+      const derivedMessageId = this.options.messages.createAudioTranscriptMessage({
         sourceMessageId: running.sourceMessageId,
-        imageKey: running.imageKey,
-        imageFileName,
-        summary: described.summary,
-        ...(described.extractedText ? { extractedText: described.extractedText } : {}),
-        reason: described.reason,
-        multimodalModel: this.options.multimodalModelName,
+        audioKey: running.audioKey,
+        audioFileName,
+        transcript: transcribed.text,
+        transcriptionModel: this.options.transcriptionModelName,
         generatedAt: new Date().toISOString(),
       });
 

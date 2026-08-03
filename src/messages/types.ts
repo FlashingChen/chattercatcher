@@ -55,7 +55,17 @@ export interface CreateImageSummaryMessageInput {
   imageFileName?: string;
   summary: string;
   reason?: string;
+  extractedText?: string;
   multimodalModel: string;
+  generatedAt: string;
+}
+
+export interface CreateAudioTranscriptMessageInput {
+  sourceMessageId: string;
+  audioKey: string;
+  audioFileName?: string;
+  transcript: string;
+  transcriptionModel: string;
   generatedAt: string;
 }
 

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -87,6 +88,43 @@ describe("local file ingest", () => {
 
       expect(result.parser).toBe("docx");
       expect(evidence.some((item) => item.source.type === "file" && item.text.includes("2026/6/30"))).toBe(true);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("ingest 时记录内容 sha256 与飞书 file_key，重复 ingest 同路径 ID 不变", async () => {
+    const sourcePath = path.join(testDir, "note.md");
+    const content = "写下来：端午活动改到 2026/6/30。\n";
+    await fs.writeFile(sourcePath, content, "utf8");
+
+    const config = createDefaultConfig();
+    config.storage.dataDir = path.join(testDir, "data");
+    const database = openDatabase(config);
+
+    try {
+      const messages = new MessageRepository(database);
+      const jobs = new FileJobRepository(database);
+      const first = await ingestLocalFile({
+        config,
+        messages,
+        jobs,
+        filePath: sourcePath,
+        platformFileKey: "file_v2_from_feishu",
+      });
+
+      const expectedSha = crypto.createHash("sha256").update(content).digest("hex");
+      expect(first.contentSha256).toBe(expectedSha);
+      expect(first.platformFileKey).toBe("file_v2_from_feishu");
+      expect(jobs.get(first.jobId!)).toMatchObject({
+        contentSha256: expectedSha,
+        platformFileKey: "file_v2_from_feishu",
+      });
+
+      const second = await ingestLocalFile({ config, messages, jobs, filePath: sourcePath });
+      expect(second.jobId).toBe(first.jobId);
+      expect(second.messageId).toBe(first.messageId);
+      expect(messages.getMessageCount()).toBe(1);
     } finally {
       database.close();
     }

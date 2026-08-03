@@ -132,9 +132,9 @@ ChatterCatcher 是一个早期 MVP。它已经具备飞书长连接接入、本�
 | 问答 | OpenAI-compatible chat completions、Agent 多轮工具调用、证据不足时说不知道、回答带引用、工具循环耗尽智能兜底 |
 | 定时任务 | 群内自然语言创建 cron 定时任务（如"每天 9 点总结昨天群聊"），限定当前群聊，支持创建/查看/删除 |
 | 引用格式 | 展示"谁在什么时候说了什么"，避免暴露 `ou_` / `oc_` 等 opaque id |
-| 文件知识源 | 支持 txt、md、json、csv、tsv、log、docx、pdf 导入和解析 |
+| 文件知识源 | 支持 txt、md、json、csv、tsv、log、docx、pdf、xlsx、pptx、html 导入和解析 |
 | CLI | setup、settings、doctor、gateway、process、index、files、export、restore、profiles |
-| Web UI | 本地状态看板、自动刷新、最近消息、群聊、文件库、人物档案和解析任务 |
+| Web UI | 本地状态看板、自动刷新、最近消息、群聊、文件库、人物档案和解析任务；设置页支持配置编辑、导出数据与重建索引 |
 | 隐私 | 配置与密钥分离；导出不包含 API Key、App Secret 或 token；会话摘要会脱敏疑似密钥 |
 | 数据管理 | 本地导出/恢复、按消息/文件/群删除本地知识库数据 |
 
@@ -269,6 +269,47 @@ chattercatcher gateway start
 http://127.0.0.1:3878
 ```
 
+### 7. 开机自启（可选）
+
+`chattercatcher service install` 让 Gateway 开机自动启动并崩溃自动拉起：
+
+```bash
+chattercatcher service install
+chattercatcher service status
+chattercatcher service uninstall   # 卸载并清理
+```
+
+- **macOS**：生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`，通过 launchd 管理，日志写入 `~/.chattercatcher/logs/gateway.log`（已真机验证）。
+- **Linux**：生成 `~/.config/systemd/user/chattercatcher-gateway.service`，安装后按提示执行 `systemctl --user daemon-reload && systemctl --user enable --now chattercatcher-gateway`（静态交付，未真机验证）。
+- Windows 暂不支持。
+
+### 8. Docker 部署（可选）
+
+```bash
+docker build -t chattercatcher .
+docker run --rm chattercatcher --help
+```
+
+数据用挂载卷持久化，宿主访问 Web UI 需在配置中把 `web.host` 设为 `0.0.0.0`：
+
+```bash
+mkdir -p ~/chattercatcher-data
+cat > ~/chattercatcher-data/config.json <<'EOF'
+{
+  "feishu": {}, "llm": {}, "embedding": {}, "storage": {},
+  "schedules": {}, "web": { "host": "0.0.0.0", "port": 3878 }
+}
+EOF
+docker run -d --name chattercatcher \
+  -v ~/chattercatcher-data:/data \
+  -e CHATTERCATCHER_HOME=/data \
+  -p 3878:3878 \
+  chattercatcher web start
+curl http://127.0.0.1:3878/api/status
+```
+
+> 说明：Web UI 默认只监听 `127.0.0.1`（隐私优先）。Docker 端口映射 `-p` 到不了容器回环地址，所以跨容器/宿主访问时需要在挂载卷的 `config.json` 中设置 `web.host=0.0.0.0`。
+
 ---
 
 ## 使用方式
@@ -310,6 +351,9 @@ http://127.0.0.1:3878
 | `chattercatcher gateway start` | 启动飞书长连接 Gateway 和本地 Web UI |
 | `chattercatcher gateway status` | 查看 Gateway 状态 |
 | `chattercatcher gateway stop` | 停止 Gateway |
+| `chattercatcher service install` | 安装 Gateway 开机自启服务（macOS launchd / Linux systemd） |
+| `chattercatcher service status` | 查看开机自启服务状态 |
+| `chattercatcher service uninstall` | 卸载开机自启服务 |
 | `chattercatcher process messages` | 立即处理消息索引任务 |
 | `chattercatcher process episodes` | 立即生成会话记忆块，把碎片聊天整理成可检索摘要 |
 | `chattercatcher index rebuild` | 重建 SQLite embedding 向量索引 |

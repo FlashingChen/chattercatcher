@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { AppConfig } from "../config/schema.js";
@@ -215,6 +216,8 @@ export function migrateDatabase(database: SqliteDatabase): void {
       characters INTEGER,
       warnings_json TEXT NOT NULL DEFAULT '[]',
       error TEXT,
+      content_sha256 TEXT,
+      platform_file_key TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -236,6 +239,24 @@ export function migrateDatabase(database: SqliteDatabase): void {
     );
 
     CREATE INDEX IF NOT EXISTS image_multimodal_tasks_status_idx ON image_multimodal_tasks(status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS audio_transcription_tasks (
+      id TEXT PRIMARY KEY,
+      source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      platform_message_id TEXT NOT NULL,
+      audio_key TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','skipped','failed')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      derived_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(source_message_id, audio_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS audio_transcription_tasks_status_idx ON audio_transcription_tasks(status, updated_at);
 
     CREATE TABLE IF NOT EXISTS feishu_chat_members (
       chat_id TEXT NOT NULL,
@@ -266,18 +287,6 @@ export function migrateDatabase(database: SqliteDatabase): void {
 
     CREATE INDEX IF NOT EXISTS cron_jobs_chat_status_idx ON cron_jobs(chat_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status, next_run_at);
-
-    CREATE TABLE IF NOT EXISTS feishu_chat_members (
-      chat_id TEXT NOT NULL,
-      open_id TEXT NOT NULL,
-      user_id TEXT,
-      user_name TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (chat_id, open_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS feishu_chat_members_chat_name_idx
-    ON feishu_chat_members(chat_id, user_name);
   `);
 
   const messageColumns = database.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
@@ -301,5 +310,28 @@ export function migrateDatabase(database: SqliteDatabase): void {
   const qaLogColumns = database.prepare("PRAGMA table_info(qa_logs)").all() as Array<{ name: string }>;
   if (!qaLogColumns.some((column) => column.name === "trace_json")) {
     database.prepare("ALTER TABLE qa_logs ADD COLUMN trace_json TEXT NOT NULL DEFAULT '{}'").run();
+  }
+
+  const fileJobColumns = database.prepare("PRAGMA table_info(file_jobs)").all() as Array<{ name: string }>;
+  const ensureFileJobColumn = (name: string, definition: string): void => {
+    if (!fileJobColumns.some((column) => column.name === name)) {
+      database.prepare(`ALTER TABLE file_jobs ADD COLUMN ${definition}`).run();
+    }
+  };
+  ensureFileJobColumn("content_sha256", "content_sha256 TEXT");
+  ensureFileJobColumn("platform_file_key", "platform_file_key TEXT");
+
+  // 存量行 backfill：stored_path 文件还在就算内容 sha256 补写，文件不在就留空，不编造。
+  const rowsToBackfill = database
+    .prepare("SELECT id, stored_path FROM file_jobs WHERE content_sha256 IS NULL AND stored_path IS NOT NULL")
+    .all() as Array<{ id: string; stored_path: string }>;
+  const updateContentSha = database.prepare("UPDATE file_jobs SET content_sha256 = ? WHERE id = ?");
+  for (const row of rowsToBackfill) {
+    try {
+      const content = fs.readFileSync(row.stored_path);
+      updateContentSha.run(crypto.createHash("sha256").update(content).digest("hex"), row.id);
+    } catch {
+      // 文件不存在时留空，不编造哈希。
+    }
   }
 }

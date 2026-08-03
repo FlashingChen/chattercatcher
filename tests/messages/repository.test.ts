@@ -291,6 +291,44 @@ describe("message repository", () => {
     }
   });
 
+  it("extractedText 存在时派生消息包含图片原文且 summary 不变", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const messages = new MessageRepository(database);
+      const sourceMessageId = messages.ingest({
+        platform: "feishu",
+        platformChatId: "chat-1",
+        chatName: "项目群",
+        platformMessageId: "image-message-ocr",
+        senderId: "alice",
+        senderName: "Alice",
+        messageType: "image",
+        text: "[图片] img_v2_ocr",
+        sentAt: "2026-05-02T08:00:00.000Z",
+      });
+
+      const derivedMessageId = messages.createImageSummaryMessage({
+        sourceMessageId,
+        imageKey: "img_v2_ocr",
+        summary: "白板上写着发布计划。",
+        extractedText: "8月10日 上午9:00 家长会",
+        multimodalModel: "vision-model",
+        generatedAt: "2026-05-02T08:01:00.000Z",
+      });
+
+      const rawPayload = database
+        .prepare("SELECT text, raw_payload_json AS rawPayloadJson FROM messages WHERE id = ?")
+        .get(derivedMessageId) as { text: string; rawPayloadJson: string };
+
+      expect(rawPayload.text).toBe("[图片转述] 白板上写着发布计划。\n[图片原文] 8月10日 上午9:00 家长会");
+      expect(JSON.parse(rawPayload.rawPayloadJson).extractedText).toBe("8月10日 上午9:00 家长会");
+    } finally {
+      database.close();
+    }
+  });
+
   it("重复创建同一图片转述时不产生重复派生消息", async () => {
     const config = createDefaultConfig();
     config.storage.dataDir = testDir;

@@ -133,4 +133,84 @@ describe("OpenAICompatibleMultimodalModel", () => {
 
     expect(model).toBeInstanceOf(OpenAICompatibleMultimodalModel);
   });
+
+  it("parses extractedText from the multimodal response and requires it in the prompt", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "截图里有行程表",
+                  isMeaningful: true,
+                  extractedText: "8月10日 上午9:00 家长会",
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const model = new OpenAICompatibleMultimodalModel({
+      baseUrl: "https://example.test/v1",
+      apiKey: "vision-key",
+      model: "vision",
+    });
+
+    const result = await model.describeImage({ imagePath, mimeType: "image/jpeg" });
+
+    expect(result).toEqual({
+      summary: "截图里有行程表",
+      isMeaningful: true,
+      extractedText: "8月10日 上午9:00 家长会",
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const prompt = body.messages[0].content[0].text as string;
+    expect(prompt).toContain("extractedText");
+    expect(prompt).toContain("原样提取");
+  });
+
+  it("omits extractedText when the response omits or empties it", async () => {
+    const model = new OpenAICompatibleMultimodalModel({
+      baseUrl: "https://example.test/v1",
+      apiKey: "vision-key",
+      model: "vision",
+    });
+
+    for (const content of [
+      JSON.stringify({ summary: "无文字截图", isMeaningful: true }),
+      JSON.stringify({ summary: "无文字截图", isMeaningful: true, extractedText: "" }),
+      JSON.stringify({ summary: "无文字截图", isMeaningful: true, extractedText: "   " }),
+    ]) {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 }),
+      );
+
+      const result = await model.describeImage({ imagePath, mimeType: "image/jpeg" });
+      expect(result.extractedText).toBeUndefined();
+      expect(result.summary).toBe("无文字截图");
+    }
+  });
+
+  it("rejects a non-string extractedText", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({ summary: "有文字", isMeaningful: true, extractedText: 42 }) } }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const model = new OpenAICompatibleMultimodalModel({
+      baseUrl: "https://example.test/v1",
+      apiKey: "vision-key",
+      model: "vision",
+    });
+
+    await expect(model.describeImage({ imagePath, mimeType: "image/jpeg" })).rejects.toThrow(
+      "extractedText 不是字符串",
+    );
+  });
 });

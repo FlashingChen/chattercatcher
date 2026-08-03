@@ -25,8 +25,9 @@ function buildPrompt(context?: string): string {
   const contextText = context?.trim();
   return [
     "请理解这张图片，判断它是否包含值得进入知识库和会话记忆的有意义信息。",
-    "请只输出 JSON，格式为 {\"summary\": string, \"isMeaningful\": boolean, \"reason\": string}。",
+    "请只输出 JSON，格式为 {\"summary\": string, \"isMeaningful\": boolean, \"reason\": string, \"extractedText\": string}。",
     "summary 使用简洁中文转述图片中的关键信息；无意义图片也要给出简短 summary。",
+    "如果图片中包含文字，请把文字原样提取出来填入 extractedText 字段；没有文字则 extractedText 为空字符串。",
     "如果上下文提供了图片文件名，summary 必须原样包含该文件名，便于之后按文件名检索和发送图片。",
     contextText ? `上下文：${contextText}` : undefined,
   ]
@@ -56,10 +57,15 @@ function parseDescribeImageResult(content: string): DescribeImageResult {
   }
 
   const reason = typeof result.reason === "string" ? result.reason.trim() : "";
+  if (result.extractedText !== undefined && typeof result.extractedText !== "string") {
+    throw new Error("多模态模型返回的 extractedText 不是字符串。");
+  }
+  const extractedText = typeof result.extractedText === "string" ? result.extractedText.trim() : "";
   return {
     summary,
     isMeaningful: result.isMeaningful,
     ...(reason ? { reason } : {}),
+    ...(extractedText ? { extractedText } : {}),
   };
 }
 

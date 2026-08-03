@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.3.0] - 2026-08-03
+
+### Added
+- 文件溯源：`file_jobs` 持久化文件内容 `content_sha256` 与飞书 `platform_file_key`，存量行迁移时按 stored_path 文件回填 sha256（文件缺失则留空，不编造），飞书附件路径把 `attachment.fileKey` 传入落列。
+- 开机自启服务：新增 `chattercatcher service install/status/uninstall`。macOS 生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`（launchd，KeepAlive + RunAtLoad，日志写 logs/）并真机验证；Linux 生成 `~/.config/systemd/user/chattercatcher-gateway.service` 并打印 enable --now 指引（静态交付，未真机验证）。已有同名非本项目服务文件时拒绝覆盖。
+- Docker 部署：新增根目录多阶段 `Dockerfile` 与 `.dockerignore`（排除 data/node_modules/.git/logs 等），`ENTRYPOINT ["node","dist/cli.js"]`，默认 `CHATTERCATCHER_HOME=/data`，一条 `docker build` + `docker run` 即可运行，镜像内不含密钥与用户数据。
+- Web UI 设置页：支持在浏览器编辑配置（`GET/PUT /api/config`，白名单字段部分更新、密钥脱敏、secret 留空即不修改）、导出数据（`POST /api/export`，导出到 `storage.dataDir/exports/` 且不含密钥）与重建索引（调用 `/api/process/messages`，与 CLI `index rebuild` 同一条处理路径）。
+- 语音转写：飞书语音自动转写为文字进入知识库，支持检索与引用。走 OpenAI-compatible 远程 `/audio/transcriptions` 端点（独立 `transcription` 配置段），转写文本 100% 来自模型返回，失败自动重试三次后标失败。
+- 图片 OCR：`describeImage` 增加 `extractedText` 字段，图片中的文字原文提取后与转述摘要一起写入派生消息，图内文字可被检索。
+- 文件解析新增三种格式：XLSX（支持共享字符串与多工作表，中文不乱码）、PPTX（按幻灯片顺序提取每页文字）、HTML/HTM（剥除 script/style/nav 等样板后提取正文）。
+
 ## [0.2.7] - 2026-05-30
 
 ### Added

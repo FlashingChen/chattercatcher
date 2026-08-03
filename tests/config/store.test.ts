@@ -180,3 +180,80 @@ describe("multimodal config", () => {
     expect(nullSecrets.multimodal).toEqual({ apiKey: "" });
   });
 });
+
+describe("transcription config", () => {
+  it("defaults transcription config and secret to empty values", () => {
+    const config = createDefaultConfig();
+    const secrets = createDefaultSecrets();
+
+    expect(config.transcription).toEqual({ baseUrl: "", model: "" });
+    expect(secrets.transcription).toEqual({ apiKey: "" });
+  });
+
+  it("parses explicit transcription config", () => {
+    const config = appConfigSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      storage: {},
+      web: {},
+      schedules: {},
+      episodes: {},
+      multimodal: {},
+      transcription: { baseUrl: "https://api.example.com/v1", model: "whisper-model" },
+    });
+    const secrets = appSecretsSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      multimodal: {},
+      transcription: { apiKey: "transcribe-key" },
+    });
+
+    expect(config.transcription.baseUrl).toBe("https://api.example.com/v1");
+    expect(config.transcription.model).toBe("whisper-model");
+    expect(secrets.transcription.apiKey).toBe("transcribe-key");
+  });
+
+  it("parses omitted or null transcription to default values", () => {
+    const omittedConfig = appConfigSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      storage: {},
+      web: {},
+      schedules: {},
+      episodes: {},
+      multimodal: {},
+    });
+    const nullConfig = appConfigSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      storage: {},
+      web: {},
+      schedules: {},
+      episodes: {},
+      multimodal: {},
+      transcription: null,
+    });
+    const omittedSecrets = appSecretsSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      multimodal: {},
+    });
+    const nullSecrets = appSecretsSchema.parse({
+      feishu: {},
+      llm: {},
+      embedding: {},
+      multimodal: {},
+      transcription: null,
+    });
+
+    expect(omittedConfig.transcription).toEqual({ baseUrl: "", model: "" });
+    expect(nullConfig.transcription).toEqual({ baseUrl: "", model: "" });
+    expect(omittedSecrets.transcription).toEqual({ apiKey: "" });
+    expect(nullSecrets.transcription).toEqual({ apiKey: "" });
+  });
+});
