@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
-import { loadSecrets, saveSecrets } from "../config/store.js";
-import type { AppConfig } from "../config/schema.js";
+import { z } from "zod";
+import { loadSecrets, saveSecrets, loadConfig, saveConfig, maskSecret } from "../config/store.js";
+import type { AppConfig, AppSecrets } from "../config/schema.js";
 import { CronJobRepository } from "../cron/jobs.js";
 import { openDatabase } from "../db/database.js";
-import { FileJobRepository } from "../files/jobs.js";
 import { EpisodeRepository } from "../episodes/repository.js";
+import { FileJobRepository } from "../files/jobs.js";
 import { getGatewayStatus } from "../gateway/index.js";
 import { MessageRepository } from "../messages/repository.js";
 import { processMessagesNow } from "../rag/manual-index.js";
@@ -1166,6 +1167,146 @@ function toQaLogListItem(log: ReturnType<QaLogRepository["listRecent"]>[number])
   return item;
 }
 
+// Web UI 可通过 /api/config 修改的配置字段白名单（见领导拍板）。
+// 不在白名单内的字段（如 feishu.appId/botOpenId、embedding.dimension、web.*、storage.*）一律拒绝。
+const writableConfigSchema = z
+  .object({
+    feishu: z
+      .object({
+        domain: z.enum(["feishu", "lark"]).optional(),
+        groupPolicy: z.enum(["open", "allowlist", "disabled"]).optional(),
+        requireMention: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    llm: z
+      .object({
+        baseUrl: z.string().url().or(z.literal("")).optional(),
+        model: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    embedding: z
+      .object({
+        baseUrl: z.string().url().or(z.literal("")).optional(),
+        model: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    multimodal: z
+      .object({
+        baseUrl: z.string().url().or(z.literal("")).optional(),
+        model: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    transcription: z
+      .object({
+        baseUrl: z.string().url().or(z.literal("")).optional(),
+        model: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    schedules: z
+      .object({
+        indexing: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    episodes: z
+      .object({
+        windowMinutes: z.number().int().positive().optional(),
+        quietMinutes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+// secrets 可改范围：只允许各模块的 apiKey/appSecret，web.actionToken 禁止通过 API 修改。
+const writableSecretsSchema = z
+  .object({
+    feishu: z.object({ appSecret: z.string().optional() }).strict().optional(),
+    llm: z.object({ apiKey: z.string().optional() }).strict().optional(),
+    embedding: z.object({ apiKey: z.string().optional() }).strict().optional(),
+    multimodal: z.object({ apiKey: z.string().optional() }).strict().optional(),
+    transcription: z.object({ apiKey: z.string().optional() }).strict().optional(),
+  })
+  .strict();
+
+const configPutBodySchema = z
+  .object({
+    config: writableConfigSchema.optional(),
+    secrets: writableSecretsSchema.optional(),
+  })
+  .strict();
+
+// 判断 config 部分是否包含禁止通过 API 修改的字段：web.host / web.port / storage.dataDir。
+function hasForbiddenConfigFields(input: unknown): boolean {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const record = input as Record<string, unknown>;
+  const web = record.web;
+  if (web && typeof web === "object" && !Array.isArray(web)) {
+    const webRecord = web as Record<string, unknown>;
+    if (
+      Object.prototype.hasOwnProperty.call(webRecord, "host") ||
+      Object.prototype.hasOwnProperty.call(webRecord, "port")
+    ) {
+      return true;
+    }
+  }
+  const storage = record.storage;
+  if (storage && typeof storage === "object" && !Array.isArray(storage)) {
+    if (Object.prototype.hasOwnProperty.call(storage as Record<string, unknown>, "dataDir")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 把部分更新 patch 深合并进现有 config（只合并 patch 中出现的 section）。
+function mergeConfigSections(base: AppConfig, patch: unknown): AppConfig {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return base;
+  const next = { ...base };
+  for (const [section, fields] of Object.entries(patch as Record<string, unknown>)) {
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) continue;
+    const baseSection = (base as Record<string, unknown>)[section] as Record<string, unknown> | undefined;
+    (next as Record<string, unknown>)[section] = {
+      ...(baseSection ?? {}),
+      ...(fields as Record<string, unknown>),
+    };
+  }
+  return next;
+}
+
+// 合并 secrets：空字符串表示「留空则不修改」，不覆盖已存值。
+function mergeSecretsSections(base: AppSecrets, patch: unknown): AppSecrets {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return base;
+  const next = { ...base };
+  for (const [section, fields] of Object.entries(patch as Record<string, unknown>)) {
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) continue;
+    const baseSection = (base as Record<string, unknown>)[section] as Record<string, unknown> | undefined;
+    const merged: Record<string, unknown> = { ...(baseSection ?? {}) };
+    for (const [key, value] of Object.entries(fields as Record<string, unknown>)) {
+      if (typeof value === "string" && value === "") continue;
+      merged[key] = value;
+    }
+    (next as Record<string, unknown>)[section] = merged;
+  }
+  return next;
+}
+
+// 响应给前端的 secrets 永远只含脱敏值；web.actionToken 不对外暴露。
+function maskedSecretsForApi(secrets: AppSecrets) {
+  return {
+    feishu: { appSecret: maskSecret(secrets.feishu.appSecret) },
+    llm: { apiKey: maskSecret(secrets.llm.apiKey) },
+    embedding: { apiKey: maskSecret(secrets.embedding.apiKey) },
+    multimodal: { apiKey: maskSecret(secrets.multimodal.apiKey) },
+    transcription: { apiKey: maskSecret(secrets.transcription.apiKey) },
+  };
+}
+
 export function createWebApp(config: AppConfig, options: WebAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const database = openDatabase(config);
@@ -1399,6 +1540,61 @@ export function createWebApp(config: AppConfig, options: WebAppOptions = {}): Fa
 
     profiles.markProfileEntryDeleted(entryId);
     return { ok: true };
+  });
+
+  app.get("/api/config", async (request, reply) => {
+    await tokenReady;
+    if (!isAuthorizedWebAction(request, webActionToken)) {
+      reply.code(403);
+      return { ok: false, message: "Web 操作未授权。" };
+    }
+
+    const config = await loadConfig();
+    const secrets = await loadSecrets();
+    return { config, secrets: maskedSecretsForApi(secrets) };
+  });
+
+  app.put("/api/config", async (request, reply) => {
+    await tokenReady;
+    if (!isAuthorizedWebAction(request, webActionToken)) {
+      reply.code(403);
+      return { ok: false, message: "Web 操作未授权。" };
+    }
+
+    const body = (request.body ?? {}) as unknown;
+    const bodyRecord = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+    if (hasForbiddenConfigFields(bodyRecord.config)) {
+      reply.code(400);
+      return { ok: false, message: "web.host / web.port / storage.dataDir 不允许通过 Web UI 修改。" };
+    }
+
+    let parsed: { config?: unknown; secrets?: unknown };
+    try {
+      parsed = configPutBodySchema.parse(body);
+    } catch {
+      reply.code(400);
+      return { ok: false, message: "配置内容不合法。" };
+    }
+
+    const currentConfig = await loadConfig();
+    const currentSecrets = await loadSecrets();
+    const nextConfig = mergeConfigSections(currentConfig, parsed.config);
+    const nextSecrets = mergeSecretsSections(currentSecrets, parsed.secrets);
+
+    try {
+      await saveConfig(nextConfig);
+      await saveSecrets(nextSecrets);
+    } catch {
+      reply.code(400);
+      return { ok: false, message: "配置内容不合法。" };
+    }
+
+    return {
+      ok: true,
+      message: "已保存，gateway 重启后生效。",
+      config: nextConfig,
+      secrets: maskedSecretsForApi(nextSecrets),
+    };
   });
 
   app.post("/api/process/messages", async (request, reply) => {

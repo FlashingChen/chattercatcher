@@ -576,4 +576,119 @@ describe("web server", () => {
       await app.close();
     }
   });
+
+  it("提供配置读取与保存 API（脱敏、授权、部分更新）", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = path.join(testDir, "data");
+    const secrets = createDefaultSecrets();
+    secrets.web.actionToken = "test-token";
+    await saveSecrets(secrets);
+    const app = createWebApp(config, { version: "0.1.test" });
+    try {
+      const authorizedHeaders = { cookie: "chattercatcher_web_token=test-token" };
+
+      // 无授权头：GET 与 PUT 都返回 403
+      const unauthorizedGet = await app.inject({ method: "GET", url: "/api/config" });
+      expect(unauthorizedGet.statusCode).toBe(403);
+      expect(unauthorizedGet.json()).toMatchObject({ ok: false, message: "Web 操作未授权。" });
+
+      const unauthorizedPut = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        payload: { config: { llm: { model: "gpt-test" } } },
+      });
+      expect(unauthorizedPut.statusCode).toBe(403);
+      expect(unauthorizedPut.json()).toMatchObject({ ok: false, message: "Web 操作未授权。" });
+
+      // 禁止字段：web.host / web.port / storage.dataDir → 400
+      const forbiddenWeb = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { config: { web: { host: "0.0.0.0" } } },
+      });
+      expect(forbiddenWeb.statusCode).toBe(400);
+      expect(forbiddenWeb.json().message).toContain("web.host");
+
+      const forbiddenStorage = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { config: { storage: { dataDir: "/tmp/evil" } } },
+      });
+      expect(forbiddenStorage.statusCode).toBe(400);
+      expect(forbiddenStorage.json().message).toContain("storage.dataDir");
+
+      // 白名单之外的字段（feishu.appId）→ 400
+      const outOfScope = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { config: { feishu: { appId: "cli_x" } } },
+      });
+      expect(outOfScope.statusCode).toBe(400);
+
+      // zod 不通过（baseUrl 非法）→ 400
+      const badUrl = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { config: { llm: { baseUrl: "not-a-url" } } },
+      });
+      expect(badUrl.statusCode).toBe(400);
+
+      // 正常部分更新：config 白名单字段 + secret（含一个空串 secret）
+      const okPut = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: {
+          config: { llm: { model: "gpt-test" }, feishu: { requireMention: false } },
+          secrets: { llm: { apiKey: "test-secret" }, multimodal: { apiKey: "" } },
+        },
+      });
+      expect(okPut.statusCode).toBe(200);
+      expect(okPut.json()).toMatchObject({ ok: true });
+      expect(okPut.json().message).toContain("重启后生效");
+      expect(okPut.json().config.llm.model).toBe("gpt-test");
+      // PUT 响应同样只给脱敏 secret
+      expect(okPut.json().secrets.llm.apiKey).toBe("test...cret");
+      expect(okPut.body).not.toContain("test-secret");
+
+      // 再 PUT 一个 secret 后 GET，断言响应不包含原文（含 config 全量）
+      const okPut2 = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { secrets: { llm: { apiKey: "test-secret-value-123" } } },
+      });
+      expect(okPut2.statusCode).toBe(200);
+
+      const getResponse = await app.inject({ method: "GET", url: "/api/config", headers: authorizedHeaders });
+      expect(getResponse.statusCode).toBe(200);
+      expect(getResponse.body).not.toContain("test-secret");
+      expect(getResponse.body).not.toContain("test-secret-value-123");
+      expect(getResponse.json().config.llm.model).toBe("gpt-test");
+      expect(getResponse.json().config.feishu.requireMention).toBe(false);
+      expect(getResponse.json().secrets.llm.apiKey).toBe("test...-123");
+      // 空串 secret 不覆盖已存值
+      expect(getResponse.json().secrets.multimodal.apiKey).toBe("");
+      // 不暴露 actionToken
+      expect(getResponse.body).not.toContain("test-token");
+
+      // 空串 secret = 不修改（保留已存值）
+      const keepSecret = await app.inject({
+        method: "PUT",
+        url: "/api/config",
+        headers: authorizedHeaders,
+        payload: { secrets: { llm: { apiKey: "" } } },
+      });
+      expect(keepSecret.statusCode).toBe(200);
+      const getAfterKeep = await app.inject({ method: "GET", url: "/api/config", headers: authorizedHeaders });
+      expect(getAfterKeep.json().secrets.llm.apiKey).toBe("test...-123");
+      expect(getAfterKeep.body).not.toContain("test-secret-value-123");
+    } finally {
+      await app.close();
+    }
+  });
 });
