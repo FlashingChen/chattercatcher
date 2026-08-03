@@ -42,6 +42,7 @@ import { askWithRag } from "./rag/qa-service.js";
 import { formatCitation } from "./rag/citations.js";
 import { updateChatterCatcher } from "./update/npm-updater.js";
 import { startWebServer } from "./web/server.js";
+import { getServiceStatus, installService, uninstallService } from "./service/manager.js";
 
 const program = new Command();
 
@@ -413,6 +414,24 @@ gateway.command("stop").description("停止 Gateway").action(() => {
 gateway.command("restart").description("重启 Gateway").action(async () => {
   console.log(stopGatewayProcess().message);
   await startGatewayCommand();
+});
+
+const service = program.command("service").description("管理 gateway 开机自启服务");
+
+service.command("install").description("安装 gateway 开机自启服务（macOS launchd 真机 / Linux systemd 静态）").action(() => {
+  const result = installService();
+  console.log(result.message);
+  if (result.platform === "unsupported") {
+    process.exitCode = 1;
+  }
+});
+
+service.command("status").description("查看开机自启服务状态").action(() => {
+  console.log(JSON.stringify(getServiceStatus(), null, 2));
+});
+
+service.command("uninstall").description("卸载并清理 gateway 开机自启服务").action(() => {
+  console.log(uninstallService().message);
 });
 
 const web = program.command("web").description("管理本地 Web UI");

@@ -15,7 +15,10 @@
 
 ## 任务 2：服务安装（launchd/systemd）
 
-（未开工）
+- 已实现：`chattercatcher service install/status/uninstall`。macOS 生成 `~/Library/LaunchAgents/com.chattercatcher.gateway.plist`（node + dist/cli.js + gateway start --foreground、KeepAlive、RunAtLoad、日志写 logs/gateway.log）；Linux 生成 `~/.config/systemd/user/chattercatcher-gateway.service` + 打印 enable --now 指引，标注「未真机验证」。
+- 真机验证（macOS 2026-08-03）：install 后 launchctl list 可见 com.chattercatcher.gateway（pid=35542）、gateway status running；uninstall 后 launchctl 无该服务、plist 删除、service status 如实报「未安装」（非假绿灯）。反向验证红→绿均通过。
+- 已有同名非本项目服务不覆盖（写 BLOCKED.md）。
+- 验证：npm test 71 文件 335 测试全绿，lint/build 全绿。单测覆盖 plist（Label、路径、KeepAlive）与 unit（ExecStart、Restart、WorkingDirectory）。
 
 ## 任务 3：Docker 镜像
 
