@@ -1,0 +1,27 @@
+# 排除密钥与用户数据，缩小构建上下文
+.git
+.gitignore
+node_modules
+dist
+data
+logs
+config
+coverage
+.env
+.DS_Store
+npm-debug.log*
+*.tsbuildinfo
+.worktrees
+.claude
+docs
+tests
+fixtures
+assets
+CHANGELOG.md
+README.md
+AGENTS.md
+CLAUDE.md
+PROGRESS.md
+BLOCKED.md
+Dockerfile
+.dockerignore

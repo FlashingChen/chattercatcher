@@ -22,7 +22,9 @@
 
 ## 任务 3：Docker 镜像
 
-（未开工）
+- 已实现：根目录多阶段 Dockerfile + .dockerignore，ENTRYPOINT ["node","dist/cli.js"]，ENV CHATTERCATCHER_HOME=/data，EXPOSE 3878。镜像内容检查无 /data、无 .chattercatcher、无密钥值。
+- 真跑验证（2026-08-03，docker 29.4.1）：`docker build -t chattercatcher:test` 成功；`docker run --rm chattercatcher:test --help` 正常；`web start` 容器起后宿主 `curl /api/status` 返回 HTTP 200（详见对话输出）。
+- 偏差说明：web.host 默认 127.0.0.1，且 src/config、src/web 不在白名单无法改监听地址；Docker `-p` 端口映射到不了容器 127.0.0.1（已实证）。因此宿主访问需在挂载卷写 config.json 设 web.host=0.0.0.0，文档会写明。非丢数据、非测试回归，仅宿主访问方式。
 
 ## 任务 4：收尾接线
 
