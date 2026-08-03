@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDefaultConfig } from "../../src/config/schema.js";
 import { openDatabase } from "../../src/db/database.js";
 import { FileJobRepository } from "../../src/files/jobs.js";
-
 let testDir: string;
 
 describe("FileJobRepository", () => {
@@ -63,6 +62,35 @@ describe("FileJobRepository", () => {
       });
       expect(jobs.list(10, { status: "indexed" })).toHaveLength(0);
       expect(jobs.list(10, { status: "failed" })).toHaveLength(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("记录文件内容 sha256 与平台 file_key 两列", () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    try {
+      const jobs = new FileJobRepository(database);
+      const id = jobs.start({ sourcePath: path.join(testDir, "activity.md"), platformFileKey: "file_v2_abc" });
+      jobs.complete({
+        id,
+        storedPath: path.join(testDir, "data", "files", "activity.md"),
+        parser: "text",
+        messageId: "msg_1",
+        bytes: 12,
+        characters: 10,
+        warnings: [],
+        contentSha256: "sha256_of_content",
+      });
+
+      expect(jobs.get(id)).toMatchObject({
+        id,
+        status: "indexed",
+        contentSha256: "sha256_of_content",
+        platformFileKey: "file_v2_abc",
+      });
     } finally {
       database.close();
     }

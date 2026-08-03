@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -296,6 +297,64 @@ describe("GatewayIngestor", () => {
       expect(result.attachment?.downloaded?.fileName).toBe("om_file-活动安排.md");
       expect(result.attachment?.indexedMessageId).toBeTruthy();
       expect(evidence.some((item) => item.source.type === "file" && item.text.includes("2026/6/30"))).toBe(true);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("飞书文件附件会记录 file_key 与内容 sha256 到文件任务", async () => {
+    const config = createDefaultConfig();
+    config.storage.dataDir = testDir;
+    const database = openDatabase(config);
+    const content = "溯源验证：项目预算 5000 元。";
+    const downloader = new FeishuResourceDownloader(
+      {
+        im: {
+          messageResource: {
+            async get() {
+              return {
+                async writeFile(filePath: string) {
+                  await fs.writeFile(filePath, content, "utf8");
+                },
+              };
+            },
+          },
+        },
+      },
+      testDir,
+    );
+
+    try {
+      const result = await new GatewayIngestor(database).ingestFeishuEventAndDownloadAttachments({
+        config,
+        secrets: createDefaultSecrets(),
+        downloader,
+        payload: {
+          event: {
+            sender: { sender_id: { open_id: "ou_mom" } },
+            message: {
+              message_id: "om_trace",
+              chat_id: "oc_family",
+              create_time: "1777111200000",
+              message_type: "file",
+              content: JSON.stringify({ file_key: "file_v2_trace", file_name: "溯源.md" }),
+            },
+          },
+        },
+      });
+
+      const indexedMessageId = result.attachment?.indexedMessageId;
+      expect(indexedMessageId).toBeTruthy();
+      const row = database
+        .prepare(
+          "SELECT platform_file_key AS fileKey, content_sha256 AS sha, status FROM file_jobs WHERE message_id = ?",
+        )
+        .get(indexedMessageId) as { fileKey: string | null; sha: string | null; status: string } | undefined;
+
+      expect(row).toBeTruthy();
+      expect(row?.fileKey).toBe("file_v2_trace");
+      expect(row?.sha).toBe(crypto.createHash("sha256").update(content).digest("hex"));
+      expect(row?.status).toBe("indexed");
     } finally {
       database.close();
     }

@@ -242,6 +242,7 @@ export class GatewayIngestor {
       messages: this.messages,
       jobs: this.jobs,
       filePath: downloaded.storedPath,
+      platformFileKey: attachment.fileKey,
     }).then((file) => file.messageId);
     const vectorIndexed = input.vectorIndexMessage ? await input.vectorIndexMessage(indexedMessageId) : undefined;
 
